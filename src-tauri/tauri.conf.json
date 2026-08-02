@@ -1,0 +1,48 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Xeoscape",
+  "version": "2.1.0",
+  "identifier": "com.xeoscape.pos",
+  "build": {
+    "beforeDevCommand": "npm run server",
+    "beforeBuildCommand": "npm run backend:build",
+    "devUrl": "http://127.0.0.1:4173",
+    "frontendDist": "http://127.0.0.1:4173"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Xeoscape",
+        "url": "http://127.0.0.1:4173",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/xeoscape-backend"
+    ],
+    "windows": {
+      "wix": {
+        "upgradeCode": "a4a6f3d2-9b1e-4c3f-8f2a-6e2b1c9d4f70"
+      }
+    }
+  }
+}
