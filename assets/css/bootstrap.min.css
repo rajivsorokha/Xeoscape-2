@@ -1,0 +1,8 @@
+/* assets/css/bootstrap.min.css
+   Placeholder for the Bootstrap vendor stylesheet.
+   Replace this file with the actual minified Bootstrap 5 CSS, e.g.:
+     npm install bootstrap
+     cp node_modules/bootstrap/dist/css/bootstrap.min.css assets/css/bootstrap.min.css
+   The app does not hard-depend on Bootstrap's JS; only base resets/
+   utility classes are used, and assets/css/core.css + components.css
+   layer on top of it. */

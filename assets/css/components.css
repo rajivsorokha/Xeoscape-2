@@ -1,0 +1,263 @@
+/* assets/css/components.css - reusable UI component styles
+   Uses the exact palette pulled from PharmaSpot's real CSS */
+
+.btn {
+  padding: 0.5rem 1rem;
+  border-radius: 3px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  background: #e5e9ea;
+  color: var(--color-text);
+  transition: filter 0.15s ease, opacity 0.15s ease;
+}
+
+.btn:hover { filter: brightness(0.95); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-primary { background: var(--color-blue); color: #fff; }
+.btn-success { background: var(--color-green); color: #fff; }
+.btn-secondary { background: #e5e9ea; color: var(--color-text); }
+.btn-danger { background: var(--color-danger); color: #fff; }
+.btn-info { background: var(--color-info); color: #fff; }
+.btn-warning { background: var(--color-warning); color: #fff; }
+.btn-teal { background: var(--color-teal); color: #fff; }
+.btn-sm { padding: 0.3rem 0.6rem; font-size: 0.8rem; }
+.btn-block { width: 100%; padding: 0.75rem; font-size: 1rem; }
+.btn-icon { padding: 0.5rem 0.65rem; }
+
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 1rem;
+}
+
+.product-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(54, 64, 74, 0.06);
+}
+
+.product-card-low-stock { outline: 2px solid var(--color-warning); }
+.product-card-image {
+  width: 100%;
+  height: 100px;
+  object-fit: cover;
+  background: #f1f1f1;
+  position: relative;
+}
+
+.product-card-badges { display: flex; gap: 0.25rem; margin-bottom: 0.25rem; flex-wrap: wrap; }
+.product-card-badge { font-size: 0.6rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 3px; color: #fff; letter-spacing: 0.03em; }
+.product-card-badge-warning { background: var(--color-warning); }
+.product-card-badge-danger { background: var(--color-danger); }
+
+.product-card-body { padding: 0.6rem 0.7rem; }
+.product-card-body h4 { margin: 0 0 0.15rem; font-size: 0.88rem; color: var(--color-text); }
+.product-card-sku { font-size: 0.72rem; color: var(--color-text-muted); }
+.product-card-stock { font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.1rem; }
+.product-card-price { font-weight: 700; margin: 0.2rem 0; color: var(--color-text); }
+.product-card-actions { display: flex; gap: 0.35rem; margin-top: 0.45rem; }
+
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(54, 64, 74, 0.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+
+.modal-dialog {
+  background: var(--color-surface); border-radius: 4px; width: 460px; max-width: 92vw;
+  max-height: 88vh; overflow-y: auto;
+}
+
+.modal-dialog-lg { width: 900px; max-width: 95vw; }
+
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 2px solid var(--color-border); }
+.modal-header h3 { margin: 0; font-weight: 400; color: var(--color-text); }
+.modal-close { background: none; border: none; font-size: 1.3rem; cursor: pointer; color: var(--color-text-muted); line-height: 1; }
+.modal-close:hover { color: var(--color-danger); }
+.modal-body { padding: 1.25rem; }
+.modal-actions { display: flex; gap: 0.6rem; padding: 1rem 1.25rem; border-top: 1px solid var(--color-border); }
+.modal-actions .btn { flex: 1; }
+
+.form-field { margin-bottom: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.form-field label { font-size: 0.85rem; color: var(--color-text-muted); font-weight: 600; }
+.field-error { color: var(--color-danger); font-size: 0.8rem; }
+
+.app-table { width: 100%; border-collapse: collapse; background: var(--color-surface); }
+.app-table th {
+  padding: 0.6rem; text-align: left; background: var(--color-bg);
+  color: var(--color-text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.app-table td { padding: 0.6rem; border-bottom: 1px solid var(--color-border); text-align: left; }
+.table-row-clickable { cursor: pointer; }
+.table-row-clickable:hover { background: #f4f8fb; }
+.table-empty, .empty-state { padding: 2rem; text-align: center; color: var(--color-text-muted); }
+.datatable-search-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1rem; }
+.datatable-search-row .search-input { max-width: 260px; }
+
+.toast-container { position: fixed; bottom: 1rem; right: 1rem; display: flex; flex-direction: column; gap: 0.5rem; z-index: 2000; }
+.toast { padding: 0.6rem 1rem; border-radius: 4px; color: #fff; background: var(--color-text); opacity: 1; transition: opacity 0.3s; }
+.toast-success { background: var(--color-green); }
+.toast-error { background: var(--color-danger); }
+.toast-warning { background: var(--color-warning); }
+.toast-fade-out { opacity: 0; }
+
+/* --- POS order panel (cart-ui.js): customer row, barcode scan, table, totals, action row --- */
+
+.cart-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 5px; padding: 1rem; }
+
+.cart-customer-row { display: flex; gap: 0.4rem; margin-bottom: 0.6rem; }
+.cart-customer-row select { flex: 1; }
+
+.cart-panel form { display: flex; gap: 0.4rem; margin-bottom: 0.8rem; }
+.cart-panel form input { flex: 1; }
+
+.cart-table-wrap { border: 1px solid var(--color-border); border-radius: 4px; min-height: 160px; margin-bottom: 0.8rem; }
+.cart-table-header {
+  display: grid; grid-template-columns: 24px 1fr 70px 90px 28px; gap: 0.4rem;
+  padding: 0.5rem 0.6rem; font-weight: 700; font-size: 0.8rem; color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+.cart-lines { max-height: 260px; overflow-y: auto; }
+.cart-line {
+  display: grid; grid-template-columns: 24px 1fr 70px 90px 28px; gap: 0.4rem; align-items: center;
+  padding: 0.4rem 0.6rem; border-bottom: 1px solid #f1f1f1;
+}
+.cart-line-index { color: var(--color-text-muted); font-size: 0.8rem; }
+.cart-line-qty { width: 100%; }
+.cart-empty { padding: 2rem 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; }
+
+.cart-totals { margin-bottom: 0.8rem; }
+.cart-totals-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; gap: 0.5rem; }
+.cart-totals-row input { width: 140px; }
+
+.cart-action-row { display: grid; grid-template-columns: 40px 1fr 1fr 1fr 1fr; gap: 0.4rem; }
+.cart-action-row .btn { padding: 0.6rem 0.3rem; font-size: 0.85rem; }
+.btn-whatsapp { background: #25d366; color: #fff; }
+.btn-whatsapp:hover { filter: brightness(0.95); }
+
+/* --- Payment modal --- */
+
+.payment-tabs { display: flex; flex-direction: column; border: 1px solid var(--color-border); border-radius: 4px; overflow: hidden; margin-bottom: 1rem; }
+.payment-tab { padding: 0.7rem 1rem; cursor: pointer; background: var(--color-surface); color: var(--color-text); font-weight: 600; border: none; text-align: left; }
+.payment-tab + .payment-tab { border-top: 1px solid var(--color-border); }
+.payment-tab.active { background: var(--color-teal); color: #fff; }
+
+.payment-fields { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 0.6rem; }
+.payment-field-row { display: flex; align-items: center; gap: 0.75rem; }
+.payment-field-row label { width: 90px; font-size: 0.85rem; color: var(--color-text-muted); }
+.payment-field-row .readonly-field,
+.payment-field-row input {
+  flex: 1; padding: 0.55rem 0.7rem; border-radius: 4px; border: 1px solid var(--color-border);
+  background: var(--color-bg); font-size: 0.95rem; color: var(--color-text);
+}
+
+.payment-discount-note { font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.6rem; min-height: 1em; }
+
+.payment-keypad-row { display: flex; gap: 1rem; align-items: flex-start; }
+.keypad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; flex: 1; }
+.keypad-key {
+  padding: 0.75rem; font-size: 1.1rem; font-weight: 600; color: #fff;
+  background: var(--color-green); border: none; border-radius: 4px; cursor: pointer;
+}
+.keypad-key:hover { filter: brightness(0.95); }
+.keypad-key.keypad-decimal { background: var(--color-warning); }
+.keypad-key.keypad-clear,
+.keypad-key.keypad-backspace { background: var(--color-danger); }
+.keypad-side { display: flex; flex-direction: column; gap: 0.4rem; width: 70px; }
+
+.payment-change-bar {
+  margin-top: 1rem; padding: 0.75rem 1rem; border-radius: 4px;
+  background: var(--color-blue); color: #fff; font-weight: 700; text-align: center;
+}
+.payment-change-bar.insufficient { background: var(--color-danger); }
+
+.receipt { font-family: 'Courier New', monospace; }
+.receipt-header { text-align: center; margin-bottom: 0.5rem; }
+.receipt-header div:first-child { font-weight: 700; color: var(--color-text); }
+.receipt-line, .receipt-totals div { display: flex; justify-content: space-between; }
+.receipt-total-line { font-weight: 700; border-top: 1px dashed var(--color-teal); margin-top: 0.4rem; padding-top: 0.4rem; }
+.receipt-footer { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px dashed var(--color-border); text-align: center; font-size: 0.8rem; color: var(--color-text-muted); }
+
+/* --- User management --- */
+.user-form-inline { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; flex-wrap: wrap; }
+.user-form-inline input { flex: 1; min-width: 140px; }
+.perm-checkbox-row { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; margin-bottom: 0.75rem; }
+.perm-checkbox { display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 400; color: var(--color-text); }
+
+/* --- Report generator / email automation --- */
+.report-range-row { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+.report-actions-row { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+.report-summary-box { background: var(--color-bg); border-radius: 4px; padding: 1rem; margin-bottom: 0.75rem; min-height: 60px; }
+.report-summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 0.5rem; }
+.report-summary-cell { text-align: center; }
+.report-summary-label { font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.report-summary-value { font-size: 1.2rem; font-weight: 700; color: var(--color-text); }
+.report-top-products { font-size: 0.85rem; color: var(--color-text-muted); border-top: 1px solid var(--color-border); padding-top: 0.5rem; }
+.email-settings-form { display: flex; flex-direction: column; gap: 0.4rem; }
+
+/* --- Transactions view: stats cards, filter bar, two-pane layout --- */
+.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; margin-bottom: 1.5rem; border-radius: 5px; overflow: hidden; }
+.stat-card { padding: 1.25rem; text-align: center; color: #fff; }
+.stat-card-green { background: var(--color-green); }
+.stat-card-warning { background: var(--color-warning); }
+.stat-card-info { background: var(--color-info); }
+.stat-label { font-size: 0.8rem; letter-spacing: 0.05em; opacity: 0.9; margin-bottom: 0.4rem; }
+.stat-value { font-size: 1.9rem; font-weight: 700; }
+
+.transactions-filter-bar { background: var(--color-surface); border-radius: 5px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; flex-wrap: wrap; row-gap: 0.75rem; }
+.filter-label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--color-text-muted); margin-left: 1rem; flex-shrink: 0; }
+.filter-label select, .filter-label input { width: auto; }
+
+/* --- Compact date-range dropdown (Today/Yesterday/Last 7 Days/etc.) --- */
+.date-range-picker { position: relative; flex-shrink: 0; }
+.date-range-btn {
+  display: flex; align-items: center; gap: 0.35rem;
+  padding: 0.4rem 0.7rem; border: 1px solid var(--color-border); border-radius: 4px;
+  background: var(--color-surface); color: var(--color-text); font-size: 0.85rem;
+  cursor: pointer; white-space: nowrap;
+}
+.date-range-btn:hover { border-color: var(--color-teal); }
+.date-range-dropdown {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 50;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(44, 62, 80, 0.15); min-width: 180px; overflow: hidden;
+}
+.date-range-preset-list { display: flex; flex-direction: column; padding: 0.4rem 0; }
+.date-range-preset-item {
+  text-align: left; padding: 0.5rem 1rem; border: none; background: none; cursor: pointer;
+  font-size: 0.85rem; color: var(--color-text);
+}
+.date-range-preset-item:hover { background: var(--color-bg); }
+.date-range-preset-item.active { background: var(--color-teal); color: #fff; }
+.date-range-custom-panel { padding: 0.9rem; display: flex; flex-direction: column; gap: 0.5rem; width: 220px; }
+.date-range-custom-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.3rem; }
+
+/* --- Small "..." action menu (e.g. Import CSV, tucked away next to a primary button) --- */
+.action-menu { position: relative; flex-shrink: 0; }
+.action-menu-toggle { font-size: 1.1rem; line-height: 1; padding: 0.4rem 0.7rem; }
+.action-menu-list {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 50;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(44, 62, 80, 0.15); min-width: 180px; overflow: hidden;
+  display: flex; flex-direction: column; padding: 0.4rem 0;
+}
+.action-menu-item {
+  text-align: left; padding: 0.5rem 1rem; border: none; background: none; cursor: pointer;
+  font-size: 0.85rem; color: var(--color-text); white-space: nowrap;
+}
+.action-menu-item:hover { background: var(--color-bg); }
+
+.transactions-two-pane { display: grid; grid-template-columns: 1fr 2fr; gap: 1.25rem; align-items: start; }
+.panel-box { background: var(--color-surface); border-radius: 5px; padding: 1.25rem; }
+.panel-box h3 { margin-top: 0; font-weight: 400; color: var(--color-text); }
+
+/* --- Open Tabs modal --- */
+.open-tabs-list { display: flex; flex-direction: column; gap: 0.6rem; }
+.open-tab-item { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.6rem 0.75rem; border: 1px solid var(--color-border); border-radius: 4px; }
+.open-tab-date { font-size: 0.75rem; color: var(--color-text-muted); }
