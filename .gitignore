@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+assets/dist/
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+
+# Packaged backend binary (rebuilt via `npm run backend:build`)
+*.exe
+
+# Runtime data (created automatically -- see README's Data & Backups section)
+data/store/*.nedb
+data/store/backups/
+logs/
+
+# Test / OS artifacts
+coverage/
+.DS_Store
+Thumbs.db
+*.log
