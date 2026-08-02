@@ -114,6 +114,11 @@
 .cart-customer-row { display: flex; gap: 0.4rem; margin-bottom: 0.6rem; }
 .cart-customer-row select { flex: 1; }
 
+.cart-seat-row { align-items: center; gap: 0.4rem; margin-bottom: 0.6rem; flex-wrap: wrap; }
+.cart-seat-label { font-size: 0.8rem; font-weight: 700; color: var(--color-text-muted); margin-right: 0.15rem; }
+.seat-btn { border-radius: 20px; }
+.seat-btn.active { background: var(--color-teal); color: #fff; }
+
 .cart-panel form { display: flex; gap: 0.4rem; margin-bottom: 0.8rem; }
 .cart-panel form input { flex: 1; }
 
@@ -180,6 +185,7 @@
 .receipt { font-family: 'Courier New', monospace; }
 .receipt-header { text-align: center; margin-bottom: 0.5rem; }
 .receipt-header div:first-child { font-weight: 700; color: var(--color-text); }
+.receipt-table { text-align: center; font-weight: 700; font-size: 0.85rem; color: var(--color-teal); margin-bottom: 0.5rem; }
 .receipt-line, .receipt-totals div { display: flex; justify-content: space-between; }
 .receipt-total-line { font-weight: 700; border-top: 1px dashed var(--color-teal); margin-top: 0.4rem; padding-top: 0.4rem; }
 .receipt-footer { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px dashed var(--color-border); text-align: center; font-size: 0.8rem; color: var(--color-text-muted); }
@@ -261,3 +267,4 @@
 .open-tabs-list { display: flex; flex-direction: column; gap: 0.6rem; }
 .open-tab-item { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.6rem 0.75rem; border: 1px solid var(--color-border); border-radius: 4px; }
 .open-tab-date { font-size: 0.75rem; color: var(--color-text-muted); }
+.open-tab-table { font-size: 0.8rem; color: var(--color-teal); font-weight: 600; }

@@ -15,7 +15,7 @@ class TransactionManager {
   /**
    * items: [{ productId, quantity }]
    */
-  async checkout({ items, customerId = null, paymentMethod = 'cash', cashierId = null, discount = 0, paidAmount = null }) {
+  async checkout({ items, customerId = null, paymentMethod = 'cash', cashierId = null, discount = 0, paidAmount = null, seatAssignment = null }) {
     if (!Array.isArray(items) || items.length === 0) {
       throw new Error('Transaction must include at least one item');
     }
@@ -61,6 +61,7 @@ class TransactionManager {
       customerId,
       cashierId,
       paymentMethod,
+      seatAssignment,
       status: 'completed',
       createdAt: new Date().toISOString()
     };
@@ -74,7 +75,7 @@ class TransactionManager {
    * this does NOT deduct stock -- stock is only committed once the held
    * order is actually paid via payFromHold().
    */
-  async hold({ items, ref = '', customerId = null, cashierId = null, discount = 0 }) {
+  async hold({ items, ref = '', customerId = null, cashierId = null, discount = 0, seatAssignment = null }) {
     if (!Array.isArray(items) || items.length === 0) {
       throw new Error('Cannot hold an empty order');
     }
@@ -111,6 +112,7 @@ class TransactionManager {
       customerId,
       cashierId,
       paymentMethod: null,
+      seatAssignment,
       status: 'pending',
       createdAt: new Date().toISOString()
     };

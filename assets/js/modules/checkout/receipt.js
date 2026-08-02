@@ -27,6 +27,7 @@ export function renderReceipt(transaction) {
       el('div', {}, profile.storeName || 'Xeoscape'),
       el('div', { class: 'receipt-date' }, formatDate(transaction.createdAt))
     ]),
+    transaction.seatAssignment ? el('div', { class: 'receipt-table' }, `Table: ${transaction.seatAssignment}`) : null,
     el('div', { class: 'receipt-lines' }, lines),
     el('div', { class: 'receipt-totals' }, [
       el('div', {}, `Subtotal: ${formatMoney(transaction.subtotal, symbol)}`),

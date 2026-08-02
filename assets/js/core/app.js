@@ -104,12 +104,13 @@ export default class App {
     });
 
     // The real topbar shows a single toggle button here: "Transactions"
-    // while on the POS screen, "Point of Sale" while on Transactions --
-    // not two separate buttons.
+    // while on the POS screen, "Point of Sale" while anywhere else
+    // (Transactions or Settings) -- so there's always one click back
+    // to the POS home screen from wherever you are.
     const posTxnToggleBtn = el('button', {
       class: 'nav-btn nav-btn-green',
       onClick: () => {
-        const next = this.router.currentRoute === 'transactions' ? 'pos' : 'transactions';
+        const next = this.router.currentRoute === 'pos' ? 'transactions' : 'pos';
         this.router.navigate(next);
       }
     }, '\u{1F4C4} Transactions');
@@ -150,7 +151,7 @@ export default class App {
 
   _updateToggleButtonLabel(routeId) {
     if (!this.posTxnToggleBtn) return;
-    this.posTxnToggleBtn.textContent = routeId === 'transactions' ? '\u{1F6D2} Point of Sale' : '\u{1F4C4} Transactions';
+    this.posTxnToggleBtn.textContent = routeId === 'pos' ? '\u{1F4C4} Transactions' : '\u{1F6D2} Point of Sale';
   }
 
   _mountPosView(viewEl) {
@@ -169,10 +170,11 @@ export default class App {
     mountProductList(catalogPane, { eventBus: this.eventBus });
     mountCart(cartPane, {
       cartManager: this.cartManager,
-      onPay: ({ discount, customerId }) => openPaymentDialog({
+      onPay: ({ discount, customerId, seatAssignment }) => openPaymentDialog({
         cartManager: this.cartManager,
         discount,
         customerId,
+        seatAssignment,
         currentUserId: session.getCurrentUser()?.id
       }),
       onPrintPreview: (order) => renderOrderPreview(order)

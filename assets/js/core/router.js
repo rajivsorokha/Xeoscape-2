@@ -20,8 +20,15 @@ export default class Router {
   }
 
   start(defaultRoute) {
-    const initial = window.location.hash.replace('#', '') || defaultRoute;
-    this.navigate(initial);
+    // Always begin on the default route (POS) -- this is the app's
+    // "home" screen. Without this, a stale #hash left over from a
+    // previous reload/session (e.g. the app was last showing Settings
+    // or Transactions) would silently reopen that page instead of POS.
+    if (window.location.hash.replace('#', '') === defaultRoute) {
+      this._render(defaultRoute);
+    } else {
+      this.navigate(defaultRoute);
+    }
   }
 
   navigate(routeId) {

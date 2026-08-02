@@ -15,7 +15,7 @@ import { renderReceipt } from './receipt.js';
 
 const KEYPAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0'];
 
-export function openPaymentDialog({ cartManager, currentUserId, discount = 0, customerId = null, onComplete }) {
+export function openPaymentDialog({ cartManager, currentUserId, discount = 0, customerId = null, seatAssignment = null, onComplete }) {
   const subtotal = cartManager.getSubtotal();
   let paymentMethod = 'cash';
   let amountTendered = '';
@@ -138,6 +138,7 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
               paymentMethod,
               discount,
               customerId: customerId || null,
+              seatAssignment,
               cashierId: currentUserId,
               paidAmount: paymentMethod === 'card' ? total() : tendered
             });

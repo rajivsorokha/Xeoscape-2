@@ -16,6 +16,39 @@ import notification from '../../ui/notification.js';
 export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
   let discount = 0;
   let selectedCustomerId = '';
+  let selectedSeats = null;
+
+  // --- Seat assignment (Restaurant / Cafe only) ---
+  const SEAT_SIZES = [2, 3, 4, 6, 8];
+  const seatButtons = SEAT_SIZES.map((n) => {
+    const btn = el('button', {
+      type: 'button',
+      class: 'btn btn-sm btn-secondary seat-btn',
+      onClick: () => {
+        selectedSeats = selectedSeats === n ? null : n;
+        updateSeatButtons();
+      }
+    }, `${n}-Seater`);
+    btn.dataset.seats = String(n);
+    return btn;
+  });
+  function updateSeatButtons() {
+    seatButtons.forEach((btn) => {
+      btn.classList.toggle('active', Number(btn.dataset.seats) === selectedSeats);
+    });
+  }
+  const seatRow = el('div', { class: 'cart-seat-row', style: 'display:none;' }, [
+    el('span', { class: 'cart-seat-label' }, 'Table:'),
+    ...seatButtons
+  ]);
+  // Only shown when the active store type is Restaurant / Cafe.
+  apiClient.get('/settings')
+    .then((settings) => {
+      if (settings.storeType?.id === 'restaurant') {
+        seatRow.style.display = 'flex';
+      }
+    })
+    .catch(() => {});
 
   // --- Customer select row ---
   const customerSelect = el('select', {}, [el('option', { value: '' }, 'Walk in customer')]);
@@ -79,7 +112,7 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
 
   // --- Action row: Print / Cancel / Hold / Pay ---
   const printBtn = el('button', { class: 'btn btn-info', onClick: () => onPrintPreview?.({ lines: cartManager.getLines(), discount, total: computeGross() }) }, '\u{1F5A8}');
-  const cancelBtn = el('button', { class: 'btn btn-danger', onClick: () => { cartManager.clear(); discountInput.value = ''; discount = 0; } }, [el('span', {}, '\u2298 Cancel')]);
+  const cancelBtn = el('button', { class: 'btn btn-danger', onClick: () => { cartManager.clear(); discountInput.value = ''; discount = 0; selectedSeats = null; updateSeatButtons(); } }, [el('span', {}, '\u2298 Cancel')]);
   const holdBtn = el('button', { class: 'btn btn-info', onClick: async () => {
     if (cartManager.getLines().length === 0) { notification.error('Cart is empty.'); return; }
     const ref = await promptModal('Reference for this held order:', '');
@@ -89,17 +122,20 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
         items: cartManager.toCheckoutItems(),
         discount,
         customerId: selectedCustomerId || null,
+        seatAssignment: selectedSeats ? `${selectedSeats}-Seater` : null,
         ref
       });
       cartManager.clear();
       discountInput.value = '';
       discount = 0;
+      selectedSeats = null;
+      updateSeatButtons();
       notification.success('Order held. Find it under Open Tabs.');
     } catch (err) {
       notification.error(err.message);
     }
   } }, [el('span', {}, '\u270B Hold')]);
-  const payBtn = el('button', { class: 'btn btn-success', onClick: () => onPay?.({ discount, customerId: selectedCustomerId }) }, [el('span', {}, '\u{1F4B0} Pay')]);
+  const payBtn = el('button', { class: 'btn btn-success', onClick: () => onPay?.({ discount, customerId: selectedCustomerId, seatAssignment: selectedSeats ? `${selectedSeats}-Seater` : null }) }, [el('span', {}, '\u{1F4B0} Pay')]);
 
   const whatsappBtn = el('button', { class: 'btn btn-whatsapp', title: 'Send bill to WhatsApp', onClick: async () => {
     if (cartManager.getLines().length === 0) { notification.error('Cart is empty.'); return; }
@@ -137,6 +173,7 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
 
   container.appendChild(el('div', { class: 'cart-panel' }, [
     el('div', { class: 'cart-customer-row' }, [customerSelect, addCustomerBtn, editCustomerBtn]),
+    seatRow,
     barcodeForm,
     el('div', { class: 'cart-table-wrap' }, [
       el('div', { class: 'cart-table-header' }, [
@@ -166,6 +203,14 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
   function render(state = { lines: [], subtotal: 0 }) {
     lastState = state;
     const { lines = [], subtotal = 0 } = state;
+    // The cart is emptied both by Cancel (handled above) and by a
+    // successful payment (cartManager.clear() inside payment.js) --
+    // catching it here too means the table selection always resets
+    // once an order is done, regardless of which path emptied it.
+    if (lines.length === 0 && selectedSeats !== null) {
+      selectedSeats = null;
+      updateSeatButtons();
+    }
     listEl.innerHTML = '';
     if (lines.length === 0) {
       listEl.appendChild(el('div', { class: 'cart-empty' }, 'No items yet -- scan a barcode or add from the catalog.'));

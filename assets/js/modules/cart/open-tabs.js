@@ -35,6 +35,7 @@ export async function openOpenTabsModal({ cartManager }) {
           el('div', { class: 'open-tab-info' }, [
             el('strong', {}, order.ref || 'Held order'),
             el('span', {}, ` \u2014 ${order.items.reduce((s, li) => s + li.quantity, 0)} item(s), ${formatMoney(order.total, symbol)}`),
+            order.seatAssignment ? el('span', { class: 'open-tab-table' }, ` \u00b7 Table: ${order.seatAssignment}`) : null,
             el('div', { class: 'open-tab-date' }, formatDate(order.createdAt))
           ]),
           el('div', { style: 'display:flex; gap:0.4rem;' }, [
