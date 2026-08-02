@@ -1,0 +1,21 @@
+{
+  "generalRetail": "RETAIL-GENR-8F3K-2026",
+  "pharmacy": "PHARM-RX7Q-4M2P-2026",
+  "grocery": "GROCR-SUPM-9T5W-2026",
+  "apparel": "APRL-FASH-3K8N-2026",
+  "electronics": "ELEC-TRON-6H4V-2026",
+  "restaurant": "REST-CAFE-1Q9Z-2026",
+  "b2bGeneralRetail": "B2BG-RTLR-4K7M-2026",
+  "hardware": "HARD-WARE-2X5N-2026",
+  "beauty": "BEAU-TYCS-8P3R-2026",
+  "furniture": "FURN-ITUR-6T9Q-2026",
+  "books": "BOOK-STAT-1A4B-2026",
+  "sports": "SPOR-TSOT-7C2D-2026",
+  "jewelry": "JEWE-LRY-3E8F-2026",
+  "autoParts": "AUTO-PART-5G1H-2026",
+  "petSupplies": "PET-SUPP-9I6J-2026",
+  "convenience": "CONV-ENST-2K4L-2026",
+  "liquor": "LIQU-ORWS-8M3N-2026",
+  "flowers": "FLOW-ERSG-1O5P-2026",
+  "toys": "TOYS-GAME-7Q2R-2026"
+}

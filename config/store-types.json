@@ -1,0 +1,97 @@
+{
+  "generalRetail": {
+    "label": "General Retail",
+    "description": "General purpose retail store with simple SKU-based products",
+    "productFieldSetId": "basic"
+  },
+  "pharmacy": {
+    "label": "Pharmacy",
+    "description": "Pharmacy/drug store with barcode lookup, supplier tracking, expiry dates, and per-product minimum stock alerts",
+    "productFieldSetId": "pharmacy"
+  },
+  "grocery": {
+    "label": "Grocery / Supermarket",
+    "description": "Weighted and unit-based grocery items with expiry tracking",
+    "productFieldSetId": "grocery"
+  },
+  "apparel": {
+    "label": "Apparel / Fashion",
+    "description": "Products with size and color variants",
+    "productFieldSetId": "apparel"
+  },
+  "electronics": {
+    "label": "Electronics",
+    "description": "Serialized products with warranty tracking",
+    "productFieldSetId": "electronics"
+  },
+  "restaurant": {
+    "label": "Restaurant / Cafe",
+    "description": "Menu items with modifiers and preparation notes",
+    "productFieldSetId": "menu"
+  },
+  "b2bGeneralRetail": {
+    "label": "B2B General Retails",
+    "description": "Business-to-business wholesale retail with bulk pricing and volume-based ordering",
+    "productFieldSetId": "basic"
+  },
+  "hardware": {
+    "label": "Hardware / Home Improvement",
+    "description": "Tools, building materials, and home improvement supplies",
+    "productFieldSetId": "basic"
+  },
+  "beauty": {
+    "label": "Beauty / Cosmetics",
+    "description": "Beauty products, skincare, makeup, and personal care items",
+    "productFieldSetId": "basic"
+  },
+  "furniture": {
+    "label": "Furniture / Home Decor",
+    "description": "Furniture, home furnishings, and decorative items",
+    "productFieldSetId": "basic"
+  },
+  "books": {
+    "label": "Books / Stationery / Office Supplies",
+    "description": "Books, stationery, office supplies, and educational materials",
+    "productFieldSetId": "basic"
+  },
+  "sports": {
+    "label": "Sports / Outdoors",
+    "description": "Sports equipment, outdoor gear, and fitness accessories",
+    "productFieldSetId": "basic"
+  },
+  "jewelry": {
+    "label": "Jewelry / Accessories",
+    "description": "Jewelry, watches, and fashion accessories",
+    "productFieldSetId": "basic"
+  },
+  "autoParts": {
+    "label": "Auto Parts / Automotive",
+    "description": "Vehicle parts, automotive accessories, and car care products",
+    "productFieldSetId": "basic"
+  },
+  "petSupplies": {
+    "label": "Pet Supplies",
+    "description": "Pet food, pet accessories, and animal care products",
+    "productFieldSetId": "basic"
+  },
+  "convenience": {
+    "label": "Convenience Store",
+    "description": "Convenience goods, grab-and-go items, and everyday essentials",
+    "productFieldSetId": "basic"
+  },
+  "liquor": {
+    "label": "Liquor / Wine Store",
+    "description": "Alcoholic beverages, wines, spirits, and related accessories",
+    "productFieldSetId": "basic"
+  },
+  "flowers": {
+    "label": "Flowers / Gifts",
+    "description": "Floral arrangements, gift items, and greeting cards",
+    "productFieldSetId": "basic"
+  },
+  "toys": {
+    "label": "Toys / Games",
+    "description": "Toys, video games, board games, and collectibles",
+    "productFieldSetId": "basic"
+  }
+}

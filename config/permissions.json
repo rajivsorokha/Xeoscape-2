@@ -1,0 +1,28 @@
+{
+  "roles": {
+    "admin": {
+      "label": "Administrator",
+      "permissions": ["*"]
+    },
+    "manager": {
+      "label": "Manager",
+      "permissions": [
+        "products.read", "products.write",
+        "inventory.read", "inventory.write",
+        "transactions.read", "transactions.void",
+        "customers.read", "customers.write",
+        "reports.read",
+        "settings.read"
+      ]
+    },
+    "cashier": {
+      "label": "Cashier",
+      "permissions": [
+        "products.read",
+        "inventory.read",
+        "transactions.read", "transactions.create",
+        "customers.read", "customers.write"
+      ]
+    }
+  }
+}

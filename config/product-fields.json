@@ -1,0 +1,51 @@
+{
+  "basic": [
+    { "key": "name", "label": "Product Name", "type": "text", "required": true },
+    { "key": "sku", "label": "SKU", "type": "text", "required": true },
+    { "key": "price", "label": "Price", "type": "currency", "required": true },
+    { "key": "category", "label": "Category", "type": "text", "required": false },
+    { "key": "stock", "label": "Stock Quantity", "type": "number", "required": true }
+  ],
+  "pharmacy": [
+    { "key": "category", "label": "Category", "type": "text", "required": false },
+    { "key": "supplier", "label": "Supplier", "type": "text", "required": false },
+    { "key": "name", "label": "Product Name", "type": "text", "required": true },
+    { "key": "sku", "label": "Barcode", "type": "text", "required": true },
+    { "key": "price", "label": "Price", "type": "currency", "required": true },
+    { "key": "expirationDate", "label": "Expiry Date", "type": "date", "required": false },
+    { "key": "stock", "label": "Stock", "type": "number", "required": true },
+    { "key": "minStock", "label": "Minimum Stock", "type": "number", "required": false },
+    { "key": "disableStockCheck", "label": "Disable stock check", "type": "boolean", "required": false }
+  ],
+  "grocery": [
+    { "key": "name", "label": "Product Name", "type": "text", "required": true },
+    { "key": "sku", "label": "SKU", "type": "text", "required": true },
+    { "key": "price", "label": "Price", "type": "currency", "required": true },
+    { "key": "unit", "label": "Unit", "type": "select", "options": ["ea", "kg", "g", "lb", "L", "mL"], "required": true },
+    { "key": "stock", "label": "Stock Quantity", "type": "number", "required": true },
+    { "key": "expiryDate", "label": "Expiry Date", "type": "date", "required": false }
+  ],
+  "apparel": [
+    { "key": "name", "label": "Product Name", "type": "text", "required": true },
+    { "key": "sku", "label": "SKU", "type": "text", "required": true },
+    { "key": "price", "label": "Price", "type": "currency", "required": true },
+    { "key": "size", "label": "Size", "type": "text", "required": false },
+    { "key": "color", "label": "Color", "type": "text", "required": false },
+    { "key": "stock", "label": "Stock Quantity", "type": "number", "required": true }
+  ],
+  "electronics": [
+    { "key": "name", "label": "Product Name", "type": "text", "required": true },
+    { "key": "sku", "label": "SKU", "type": "text", "required": true },
+    { "key": "price", "label": "Price", "type": "currency", "required": true },
+    { "key": "serialNumber", "label": "Serial Number", "type": "text", "required": false },
+    { "key": "warrantyMonths", "label": "Warranty (months)", "type": "number", "required": false },
+    { "key": "stock", "label": "Stock Quantity", "type": "number", "required": true }
+  ],
+  "menu": [
+    { "key": "name", "label": "Item Name", "type": "text", "required": true },
+    { "key": "sku", "label": "Item Code", "type": "text", "required": true },
+    { "key": "price", "label": "Price", "type": "currency", "required": true },
+    { "key": "modifiers", "label": "Modifiers", "type": "list", "required": false },
+    { "key": "prepNotes", "label": "Preparation Notes", "type": "text", "required": false }
+  ]
+}
