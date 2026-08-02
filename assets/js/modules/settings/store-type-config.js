@@ -35,7 +35,14 @@ export async function mountStoreTypeConfig(container, { onChanged } = {}) {
 
   storeTypes.forEach((st) => {
     const isActive = st.id === activeStoreTypeId;
-    const opt = el('option', { value: st.id, disabled: isActive },
+    // NOTE: el() calls node.setAttribute(key, value) for arbitrary attrs,
+    // and HTML boolean attributes are presence-based -- setAttribute
+    // ('disabled', false) still ADDS the attribute (as the string
+    // "false"), which disables the element regardless of the boolean
+    // value passed in. Passing `undefined` instead of `false` makes
+    // el() skip setting the attribute at all, so only the active
+    // option is actually disabled.
+    const opt = el('option', { value: st.id, disabled: isActive || undefined },
       isActive ? `${st.label} (Active)` : st.label
     );
     select.appendChild(opt);
