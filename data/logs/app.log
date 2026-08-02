@@ -1,0 +1,5 @@
+[2026-08-02T08:14:36.316Z] INFO: Logging initialized. Log file: C:\Users\kuno\Desktop\vote\workspace (2)\workspace\data\logs\app.log
+[2026-08-02T08:14:36.429Z] INFO: Migrated 1 record(s) from legacy users.json
+[2026-08-02T08:14:36.524Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-08-02T08:14:36.526Z] INFO: Migrated 78 record(s) from legacy products.json
+[2026-08-02T08:14:36.529Z] INFO: Migrated 26 record(s) from legacy categories.json

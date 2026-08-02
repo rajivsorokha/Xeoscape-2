@@ -1,0 +1,18 @@
+[
+  {
+    "id": "20bcb554-e21f-4eb5-9b43-2618b3a2f1ea",
+    "username": "admin",
+    "displayName": "Administrator",
+    "role": "admin",
+    "permissions": {
+      "perm_products": true,
+      "perm_categories": true,
+      "perm_transactions": true,
+      "perm_users": true,
+      "perm_settings": true
+    },
+    "passwordHash": "39c0456ca38a3d3cc94e16dddb5451f8fe815c6a8561b461687f05e1f90d825858477b0d0e0261ed7689450d9d5047e11380003b3a456b2ddd6ef5c851fd2de1",
+    "salt": "72584d7607f02f0897bfb1a14ba818a2",
+    "createdAt": "2026-07-23T05:51:28.119Z"
+  }
+]

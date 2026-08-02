@@ -1,0 +1,158 @@
+[
+  {
+    "id": "6fc035c1-fa4d-4430-8c23-ce4be8e200f2",
+    "name": "Fresh vegetables",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.537Z"
+  },
+  {
+    "id": "99e30623-3549-4415-9ec9-43a7784add0e",
+    "name": "Fresh fruits",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.538Z"
+  },
+  {
+    "id": "ad4e7e54-59d1-4fac-a211-27526916b5fc",
+    "name": "Canned foods",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.538Z"
+  },
+  {
+    "id": "8d3fe845-5c17-4d91-bf09-e7cd6a54dc2a",
+    "name": "Sauces",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.538Z"
+  },
+  {
+    "id": "0d9e7b06-d7c5-4a05-8326-2476aaa2a76f",
+    "name": "Various groceries",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.538Z"
+  },
+  {
+    "id": "4e9c7d3b-68f1-4547-b2d6-43a0f438fbfe",
+    "name": "Spices & herbs",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.539Z"
+  },
+  {
+    "id": "028171aa-acfc-4c1f-85a0-ff53fdc1e440",
+    "name": "Oils/Vinegars",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.539Z"
+  },
+  {
+    "id": "67564917-830a-46fc-aacf-747cbf8a60c7",
+    "name": "Refrigerated items",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.539Z"
+  },
+  {
+    "id": "e90f8690-f32a-4217-9e13-7559e2018597",
+    "name": "Dairy",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.539Z"
+  },
+  {
+    "id": "296b71ac-d530-4da6-81c4-0ce5ff97c1b9",
+    "name": "Cheese",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.539Z"
+  },
+  {
+    "id": "63265473-08f9-4e5a-8fbe-769bdfa07a9f",
+    "name": "Frozen",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.539Z"
+  },
+  {
+    "id": "dd79446f-bd70-4551-8385-fec959390852",
+    "name": "Meat",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.539Z"
+  },
+  {
+    "id": "c6870c21-a9aa-4b14-8eed-da66945570d4",
+    "name": "Seafood",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.540Z"
+  },
+  {
+    "id": "e88ec9a5-39b6-41bd-9c17-c0015322e443",
+    "name": "Baked goods",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.540Z"
+  },
+  {
+    "id": "cd806eae-a302-43ed-8bf9-b8c0d50d8a34",
+    "name": "Baking",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.540Z"
+  },
+  {
+    "id": "8af0951f-f475-432b-a5dd-5640980ccae4",
+    "name": "Snacks",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.540Z"
+  },
+  {
+    "id": "c12b335f-9aa3-4060-9cfb-8e632b8ebd88",
+    "name": "Personal care",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.540Z"
+  },
+  {
+    "id": "41f8f387-87e2-4c22-8603-128c419a84b9",
+    "name": "Medicine",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.540Z"
+  },
+  {
+    "id": "41004781-0e83-488b-8cd5-c7a427864c51",
+    "name": "Kitchen",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.540Z"
+  },
+  {
+    "id": "0411b517-4de9-48a7-8452-bf3b7d81c71e",
+    "name": "Cleaning products",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.540Z"
+  },
+  {
+    "id": "040b5dda-268f-4db9-94fd-a2a2381453fd",
+    "name": "Other stuff",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.541Z"
+  },
+  {
+    "id": "313d70c2-068f-47f7-a171-95a325f901a8",
+    "name": "Pets",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.541Z"
+  },
+  {
+    "id": "af2685b5-6e16-42b3-adff-218bf03c49dd",
+    "name": "Baby",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.541Z"
+  },
+  {
+    "id": "23bcdcc3-a59d-4188-ba39-5d3cc07ed104",
+    "name": "Office supplies",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.541Z"
+  },
+  {
+    "id": "ad93a9fb-86a3-4dc8-a255-7910302e5700",
+    "name": "Alcohol",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.541Z"
+  },
+  {
+    "id": "9b674cae-dbe4-4de6-a9e6-9fa0eb9dbe77",
+    "name": "Themed meals",
+    "description": "",
+    "createdAt": "2026-07-23T05:35:36.541Z"
+  }
+]
