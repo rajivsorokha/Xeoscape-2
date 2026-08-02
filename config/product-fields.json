@@ -41,6 +41,18 @@
     { "key": "warrantyMonths", "label": "Warranty (months)", "type": "number", "required": false },
     { "key": "stock", "label": "Stock Quantity", "type": "number", "required": true }
   ],
+  "sewingMachine": [
+    { "key": "name", "label": "Product Name", "type": "text", "required": true },
+    { "key": "sku", "label": "SKU", "type": "text", "required": true },
+    { "key": "itemType", "label": "Item Type", "type": "select", "options": ["Machine", "Spare Part", "Accessory"], "required": true },
+    { "key": "brand", "label": "Brand", "type": "text", "required": false },
+    { "key": "modelNumber", "label": "Model Number", "type": "text", "required": false },
+    { "key": "compatibleModels", "label": "Compatible Machine Models", "type": "text", "required": false },
+    { "key": "price", "label": "Price", "type": "currency", "required": true },
+    { "key": "stock", "label": "Stock Quantity", "type": "number", "required": true },
+    { "key": "minStock", "label": "Minimum Stock", "type": "number", "required": false },
+    { "key": "warrantyMonths", "label": "Warranty (months)", "type": "number", "required": false }
+  ],
   "menu": [
     { "key": "name", "label": "Item Name", "type": "text", "required": true },
     { "key": "sku", "label": "Item Code", "type": "text", "required": true },

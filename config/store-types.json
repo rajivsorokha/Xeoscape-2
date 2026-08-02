@@ -93,5 +93,10 @@
     "label": "Toys / Games",
     "description": "Toys, video games, board games, and collectibles",
     "productFieldSetId": "basic"
+  },
+  "sewingMachine": {
+    "label": "Sewing Machine Shop",
+    "description": "Sewing machines, spare parts, needles, bobbins, and accessories, with service/repair tracking",
+    "productFieldSetId": "sewingMachine"
   }
 }
