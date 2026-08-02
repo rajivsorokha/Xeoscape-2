@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Xeoscape</title>
+
+  <link rel="stylesheet" href="assets/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="assets/css/core.css" />
+  <link rel="stylesheet" href="assets/css/components.css" />
+</head>
+<body>
+  <div id="app-root" class="app-shell">
+    <header class="app-header">
+      <div id="app-nav-row" class="app-header-row"></div>
+    </header>
+
+    <main id="app-view" class="app-view">
+      <!-- Active module view is rendered here by core/router.js -->
+      <div class="app-loading">Loading Xeoscape&hellip;</div>
+    </main>
+
+    <footer class="app-footer">
+      <span id="store-type-label"></span>
+    </footer>
+  </div>
+
+  <script type="module" src="renderer.js"></script>
+</body>
+</html>

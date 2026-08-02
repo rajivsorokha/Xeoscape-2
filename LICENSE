@@ -1,0 +1,46 @@
+PROPRIETARY SOFTWARE LICENSE AGREEMENT
+
+Software: UC Bar Shop ERP (Point of Sale Application)
+Version: 2.1.0
+Licensee: UC Bar Infotech
+Effective Date: July 14, 2026
+
+1. GRANT OF LICENSE
+   Subject to the terms of this Agreement, the Licensor grants UC Bar Infotech
+   a non-exclusive, non-transferable license to install, use, and deploy this
+   software ("UC Bar Shop ERP") on computing devices owned or controlled by
+   UC Bar Infotech, solely for UC Bar Infotech's internal business operations
+   and/or for deployment to UC Bar Infotech's own clients as part of a
+   point-of-sale solution.
+
+2. RESTRICTIONS
+   UC Bar Infotech shall not, without prior written consent of the Licensor:
+   a. Resell, sublicense, or redistribute the source code as a standalone
+      product;
+   b. Remove or alter any copyright, trademark, or proprietary notices;
+   c. Reverse engineer the compiled application beyond what is permitted
+      by applicable law.
+
+3. OWNERSHIP
+   All right, title, and interest in and to the software, including all
+   intellectual property rights therein, remain with the Licensor. This
+   Agreement does not convey any ownership rights to UC Bar Infotech.
+
+4. WARRANTY DISCLAIMER
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+5. LIMITATION OF LIABILITY
+   IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR
+   OTHER LIABILITY ARISING FROM THE USE OF THE SOFTWARE.
+
+6. TERM
+   This license remains in effect until terminated by either party with
+   written notice, subject to any minimum term agreed upon separately in
+   writing between the Licensor and UC Bar Infotech.
+
+---
+NOTE: This is a template license generated for scaffolding purposes. It is
+not a substitute for review by qualified legal counsel before use in a real
+commercial agreement.
