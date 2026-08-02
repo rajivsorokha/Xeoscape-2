@@ -54,9 +54,12 @@ export function renderLoginScreen(rootEl) {
     rootEl.innerHTML = '';
     rootEl.appendChild(el('div', { class: 'gate-screen' }, [
       el('div', { class: 'gate-card' }, [
+        el('div', { class: 'gate-badge' }, 'X'),
         el('h1', { class: 'gate-title' }, 'Xeoscape'),
         el('p', { class: 'gate-subtitle' }, 'Log in to continue'),
+        el('label', { class: 'gate-label' }, 'Username'),
         usernameInput,
+        el('label', { class: 'gate-label' }, 'Password'),
         passwordInput,
         errorEl,
         submitBtn,
