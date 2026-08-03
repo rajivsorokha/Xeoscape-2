@@ -16,7 +16,7 @@
 
 const path = require('path');
 const { randomUUID } = require('crypto');
-const NedbStore = require('../core/nedb-store');
+const SqliteStore = require('../core/sqlite-store');
 const ProductManager = require('../core/product-manager');
 const storeConfig = require('../core/store-config');
 
@@ -145,7 +145,7 @@ async function seed(dataDir) {
   storeConfig.configureDataDir(dataDir);
   storeConfig.setStoreType('generalRetail');
 
-  const categoriesDb = new NedbStore(dataDir, 'categories');
+  const categoriesDb = new SqliteStore(dataDir, 'categories');
   const existingCategories = await categoriesDb.readAll();
   const existingCategoryNames = new Set(existingCategories.map((c) => c.name));
 
