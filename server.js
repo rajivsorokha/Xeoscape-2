@@ -2,6 +2,22 @@
 // Express server for Xeoscape. Serves the static frontend and mounts
 // all API routers under /api/*.
 
+// node:sqlite (used by core/sqlite-store.js) is stable enough for our
+// synchronous, single-process use here but still logs an
+// ExperimentalWarning on first use in every Node 22.x release so far.
+// A CLI flag (--disable-warning) wouldn't reliably survive being
+// embedded in the pkg-compiled binary, so filter it at the process
+// level instead -- everything else still warns normally.
+// Node's own default "print warnings to stderr" behavior is itself
+// just a 'warning' listener installed at startup, not something a CLI
+// flag alone would let us selectively override -- so remove it and
+// reinstall our own that prints everything except the one we expect.
+process.removeAllListeners('warning');
+process.on('warning', (warning) => {
+  if (warning.name === 'ExperimentalWarning' && /SQLite/i.test(warning.message)) return;
+  console.warn(warning);
+});
+
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
