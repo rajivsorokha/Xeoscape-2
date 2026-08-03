@@ -14,6 +14,17 @@ const PERMISSIONS_PATH = path.join(__dirname, '..', 'config', 'permissions.json'
 // Default store type for a fresh install.
 const DEFAULT_STORE_TYPE = 'generalRetail';
 
+// Appended to every store type's field set (see getProductFields
+// below) -- optional everywhere, used only for gross-margin analysis
+// in the Product Performance report. Not store-type-specific, so it
+// doesn't belong duplicated across product-fields.json.
+const COST_FIELD = {
+  key: 'cost',
+  label: 'Cost Price',
+  type: 'currency',
+  required: false
+};
+
 function loadJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
@@ -82,7 +93,12 @@ class StoreConfig {
   getProductFields(storeTypeId = this.currentStoreType) {
     const def = this.storeTypes[storeTypeId];
     if (!def) throw new Error(`Unknown store type: ${storeTypeId}`);
-    return this.productFieldSets[def.productFieldSetId] || [];
+    const fields = this.productFieldSets[def.productFieldSetId] || [];
+    // Cost price is cross-cutting (not store-type-specific), optional
+    // everywhere, and only used for margin analysis in reporting -- so
+    // it's appended here once instead of duplicated in every store
+    // type's entry in product-fields.json.
+    return [...fields, COST_FIELD];
   }
 
   getRolePermissions(role) {

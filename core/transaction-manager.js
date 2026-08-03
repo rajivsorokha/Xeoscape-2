@@ -3,13 +3,13 @@
 // Generic across store types -- no store-specific (e.g. pharmacy) logic.
 
 const { randomUUID } = require('crypto');
-const NedbStore = require('./nedb-store');
+const SqliteStore = require('./sqlite-store');
 
 class TransactionManager {
   constructor(dataDir, productManager, inventoryManager) {
     this.productManager = productManager;
     this.inventoryManager = inventoryManager;
-    this.db = new NedbStore(dataDir, 'transactions');
+    this.db = new SqliteStore(dataDir, 'transactions');
   }
 
   /**

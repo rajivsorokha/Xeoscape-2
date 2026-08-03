@@ -3,14 +3,14 @@
 // product-manager so stock adjustments can be audited separately.
 
 const { randomUUID } = require('crypto');
-const NedbStore = require('./nedb-store');
+const SqliteStore = require('./sqlite-store');
 
 const MOVEMENT_TYPES = ['restock', 'sale', 'adjustment', 'return'];
 
 class InventoryManager {
   constructor(dataDir, productManager) {
     this.productManager = productManager;
-    this.movements = new NedbStore(dataDir, 'stock_movements');
+    this.movements = new SqliteStore(dataDir, 'stock_movements');
   }
 
   async getStock(productId) {

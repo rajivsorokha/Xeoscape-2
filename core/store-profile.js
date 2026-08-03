@@ -5,7 +5,7 @@
 // the human-facing identity of the store itself, matching the fields
 // captured in PharmaSpot's real Settings screen.
 
-const NedbStore = require('./nedb-store');
+const SqliteStore = require('./sqlite-store');
 
 const DEFAULT_PROFILE = {
   storeName: 'My Store',
@@ -22,7 +22,7 @@ const DEFAULT_PROFILE = {
 
 class StoreProfile {
   constructor(dataDir) {
-    this.db = new NedbStore(dataDir, 'store_profile');
+    this.db = new SqliteStore(dataDir, 'store_profile');
   }
 
   async get() {

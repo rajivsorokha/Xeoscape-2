@@ -13,7 +13,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const NedbStore = require('./nedb-store');
+const SqliteStore = require('./sqlite-store');
 const storeConfig = require('./store-config');
 
 const KEYS_PATH = path.join(__dirname, '..', 'config', 'activation-keys.json');
@@ -21,7 +21,7 @@ const KEYS_PATH = path.join(__dirname, '..', 'config', 'activation-keys.json');
 class Activation {
   constructor(dataDir) {
     this.keys = JSON.parse(fs.readFileSync(KEYS_PATH, 'utf8'));
-    this.db = new NedbStore(dataDir, 'activation');
+    this.db = new SqliteStore(dataDir, 'activation');
   }
 
   async getStatus() {

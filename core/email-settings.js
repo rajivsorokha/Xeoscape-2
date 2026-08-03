@@ -2,7 +2,7 @@
 // SMTP + report-recipient configuration and scheduled-report settings,
 // persisted alongside the rest of the store's data.
 
-const NedbStore = require('./nedb-store');
+const SqliteStore = require('./sqlite-store');
 
 const DEFAULT_EMAIL_SETTINGS = {
   smtpHost: '',
@@ -19,7 +19,7 @@ const DEFAULT_EMAIL_SETTINGS = {
 
 class EmailSettings {
   constructor(dataDir) {
-    this.db = new NedbStore(dataDir, 'email_settings');
+    this.db = new SqliteStore(dataDir, 'email_settings');
   }
 
   async get() {

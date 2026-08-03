@@ -5,12 +5,12 @@
 // that touches the database is async.
 
 const { randomUUID } = require('crypto');
-const NedbStore = require('./nedb-store');
+const SqliteStore = require('./sqlite-store');
 const storeConfig = require('./store-config');
 
 class ProductManager {
   constructor(dataDir) {
-    this.db = new NedbStore(dataDir, 'products');
+    this.db = new SqliteStore(dataDir, 'products');
   }
 
   _validate(fields, isPartial = false) {

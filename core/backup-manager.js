@@ -1,32 +1,33 @@
 // core/backup-manager.js
-// Auto data-backup system. Since all persisted data lives as flat
-// NeDB files (plus a couple of small JSON config files) directly under
-// dataDir, a "backup" is simply a full copy of that directory into a
-// timestamped folder under <dataDir>/../backups -- kept as a sibling,
-// not inside dataDir itself, so backups never back up other backups.
+// Auto data-backup system. Since all persisted data lives in one
+// store.sqlite file (plus a couple of small JSON config files)
+// directly under dataDir, a "backup" is simply a full copy of that
+// directory into a timestamped folder under <dataDir>/../backups --
+// kept as a sibling, not inside dataDir itself, so backups never back
+// up other backups.
 //
 // Backups can be created manually (see api/backups.js) or automatically
 // on a schedule (core/backup-scheduler.js). Old backups beyond the
 // configured retention count are pruned automatically after each run.
 //
-// RESTORE DESIGN NOTE: while the app is running, every NeDB collection
-// (products, transactions, users, ...) is an open Datastore holding its
-// own in-memory copy of the data -- swapping the underlying files on
-// disk while those are open wouldn't actually change what the running
-// app sees (stale in-memory state), and on Windows can outright fail
-// with a file-in-use error, which this project has hit repeatedly with
-// exactly this kind of live file replacement. So a restore is NOT
-// applied immediately: requestRestore() just writes a small marker
-// file recording which backup was chosen. On the next app startup,
-// applyPendingRestoreIfAny() -- called before any NeDB store is
-// constructed -- performs the actual file swap while nothing has the
-// data files open, then deletes the marker. The API layer tells the
-// user a restart is required, same as a database restore in most real
-// applications.
+// RESTORE DESIGN NOTE: while the app is running, store.sqlite is held
+// open via a long-lived connection (see core/sqlite-store.js) --
+// swapping the underlying file on disk while that connection is open
+// wouldn't actually change what the running app sees (stale WAL
+// state), and on Windows can outright fail with a file-in-use error,
+// which this project has hit repeatedly with exactly this kind of
+// live file replacement. So a restore is NOT applied immediately:
+// requestRestore() just writes a small marker file recording which
+// backup was chosen. On the next app startup, applyPendingRestoreIfAny()
+// -- called before any SqliteStore is constructed, and which also
+// closes any same-process cached connection for dataDir first --
+// performs the actual file swap while nothing has the data file open,
+// then deletes the marker. The API layer tells the user a restart is
+// required, same as a database restore in most real applications.
 
 const fs = require('fs');
 const path = require('path');
-const NedbStore = require('./nedb-store');
+const SqliteStore = require('./sqlite-store');
 
 const DEFAULT_BACKUP_SETTINGS = {
   enabled: true,
@@ -45,7 +46,7 @@ function pendingRestoreMarkerFor(dataDir) {
 }
 
 /**
- * Must be called BEFORE any NedbStore/manager touches dataDir (i.e.
+ * Must be called BEFORE any SqliteStore/manager touches dataDir (i.e.
  * right at the top of server startup). If a restore was requested via
  * requestRestore() on a previous run, performs it now and clears the
  * marker. Safe to call unconditionally on every startup -- it's a
@@ -58,6 +59,10 @@ function applyPendingRestoreIfAny(dataDir) {
   const backupName = fs.readFileSync(markerPath, 'utf8').trim();
   const backupPath = path.join(backupsDirFor(dataDir), backupName);
   fs.unlinkSync(markerPath);
+
+  // Must happen before any fs mutation below -- see the note on
+  // closeConnectionsUnder() in core/sqlite-store.js.
+  SqliteStore.closeConnectionsUnder(dataDir);
 
   if (!backupName || !fs.existsSync(backupPath)) {
     console.error(`Pending restore marker pointed at missing backup "${backupName}" -- skipping restore.`);
@@ -84,7 +89,7 @@ class BackupManager {
   constructor(dataDir) {
     this.dataDir = dataDir;
     this.backupsDir = backupsDirFor(dataDir);
-    this.settingsDb = new NedbStore(dataDir, 'backup_settings');
+    this.settingsDb = new SqliteStore(dataDir, 'backup_settings');
   }
 
   async getSettings() {
