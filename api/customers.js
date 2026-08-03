@@ -3,11 +3,11 @@
 
 const express = require('express');
 const { randomUUID } = require('crypto');
-const NedbStore = require('../core/nedb-store');
+const SqliteStore = require('../core/sqlite-store');
 
 function buildCustomersRouter({ dataDir }) {
   const router = express.Router();
-  const db = new NedbStore(dataDir, 'customers');
+  const db = new SqliteStore(dataDir, 'customers');
 
   router.get('/', async (req, res) => {
     const { search } = req.query;

@@ -4,7 +4,7 @@
 const express = require('express');
 const multer = require('multer');
 const { randomUUID } = require('crypto');
-const NedbStore = require('../core/nedb-store');
+const SqliteStore = require('../core/sqlite-store');
 const { buildTemplateCsv, parseCsvAgainstSchema } = require('../core/csv-helpers');
 
 const CATEGORY_FIELDS = [
@@ -16,7 +16,7 @@ const csvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 
 
 function buildCategoriesRouter({ dataDir }) {
   const router = express.Router();
-  const db = new NedbStore(dataDir, 'categories');
+  const db = new SqliteStore(dataDir, 'categories');
 
   router.get('/csv-template', (req, res) => {
     const csv = buildTemplateCsv(CATEGORY_FIELDS);

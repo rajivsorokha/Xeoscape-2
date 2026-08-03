@@ -7,7 +7,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { randomUUID } = require('crypto');
-const NedbStore = require('../core/nedb-store');
+const SqliteStore = require('../core/sqlite-store');
 
 const PERMISSION_KEYS = ['perm_products', 'perm_categories', 'perm_transactions', 'perm_users', 'perm_settings'];
 
@@ -27,7 +27,7 @@ function normalizePermissions(input = {}) {
  * app at all, so a fresh install must always have a way in.
  */
 async function ensureDefaultAdmin(dataDir) {
-  const db = new NedbStore(dataDir, 'users');
+  const db = new SqliteStore(dataDir, 'users');
   const users = await db.readAll();
   if (users.length > 0) return;
   const salt = crypto.randomBytes(16).toString('hex');
@@ -47,7 +47,7 @@ async function ensureDefaultAdmin(dataDir) {
 
 function buildUsersRouter({ dataDir, storeConfig }) {
   const router = express.Router();
-  const db = new NedbStore(dataDir, 'users');
+  const db = new SqliteStore(dataDir, 'users');
 
   // GET /api/users/check -- bootstraps a default admin/admin account on
   // first run, matching PharmaSpot's real first-launch behavior.

@@ -10,6 +10,45 @@ const { buildReportPdf } = require('../core/report-pdf');
 function buildReportsRouter({ reportGenerator, storeProfile, emailSettings }) {
   const router = express.Router();
 
+  // GET /api/reports/product-performance?range=today|2days|week|month
+  // Margin/ABC/basket-penetration/slow-mover analysis -- see
+  // core/report-generator.js#productPerformance for what each metric
+  // does and doesn't claim.
+  router.get('/product-performance', async (req, res) => {
+    const { range = 'month' } = req.query;
+    if (!PRESETS.includes(range)) {
+      return res.status(400).json({ error: `range must be one of: ${PRESETS.join(', ')}` });
+    }
+    try {
+      const { from, to, label } = resolveRange(range);
+      const performance = await reportGenerator.productPerformance({ from, to });
+      res.json({ range, label, ...performance });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // GET /api/reports/inventory-movement?productId=...&range=today|2days|week|month
+  // Daily stock-level + units-sold/restocked series for one product,
+  // plus a simple stockout projection -- see
+  // core/report-generator.js#inventoryMovement.
+  router.get('/inventory-movement', async (req, res) => {
+    const { productId, range = 'month' } = req.query;
+    if (!productId) {
+      return res.status(400).json({ error: 'productId is required' });
+    }
+    if (!PRESETS.includes(range)) {
+      return res.status(400).json({ error: `range must be one of: ${PRESETS.join(', ')}` });
+    }
+    try {
+      const { from, to, label } = resolveRange(range);
+      const movement = await reportGenerator.inventoryMovement({ productId, from, to });
+      res.json({ range, label, ...movement });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   // GET /api/reports/summary?range=today|2days|week|month
   router.get('/summary', async (req, res) => {
     const { range = 'today' } = req.query;
