@@ -43,7 +43,7 @@ describe('BackupManager', () => {
 
     const backup = await backupManager.createBackup();
     expect(fs.existsSync(backup.path)).toBe(true);
-    expect(fs.existsSync(path.join(backup.path, 'products.nedb'))).toBe(true);
+    expect(fs.existsSync(path.join(backup.path, 'store.sqlite'))).toBe(true);
 
     const settings = await backupManager.getSettings();
     expect(settings.lastBackupStatus).toBe('success');
