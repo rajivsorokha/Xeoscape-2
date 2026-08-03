@@ -11,6 +11,7 @@ import { formatMoney, formatDate } from '../../shared/formatters.js';
 import settingsStore from '../../shared/settings-store.js';
 import { openTransactionDetail } from './transaction-detail.js';
 import { createDateRangePicker } from '../../ui/date-range-picker.js';
+import { createBackToPosButton } from '../../ui/back-to-pos-button.js';
 import notification from '../../ui/notification.js';
 
 export async function mountTransactionList(container) {
@@ -28,6 +29,8 @@ export async function mountTransactionList(container) {
   const txnValueEl = el('div', { class: 'stat-value' }, '0');
   const itemsValueEl = el('div', { class: 'stat-value' }, '0');
   const productsValueEl = el('div', { class: 'stat-value' }, '0');
+
+  container.appendChild(el('div', { class: 'view-header' }, [el('h2', {}, 'Transactions'), createBackToPosButton()]));
 
   container.appendChild(el('div', { class: 'stats-row' }, [
     el('div', { class: 'stat-card stat-card-green' }, [el('div', { class: 'stat-label' }, 'SALES'), salesValueEl]),

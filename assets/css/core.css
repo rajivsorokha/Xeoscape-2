@@ -117,6 +117,7 @@ body {
 }
 
 .view-header h2 { margin: 0; flex-shrink: 0; color: var(--color-text); }
+.btn-back-pos { margin-left: auto; flex-shrink: 0; }
 
 /* --- Settings page: side menu + content area --- */
 .settings-page-layout { display: flex; gap: 1.5rem; align-items: flex-start; }

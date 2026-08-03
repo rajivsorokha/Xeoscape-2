@@ -111,7 +111,7 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
   });
 
   // --- Action row: Print / Cancel / Hold / Pay ---
-  const printBtn = el('button', { class: 'btn btn-info', onClick: () => onPrintPreview?.({ lines: cartManager.getLines(), discount, total: computeGross() }) }, '\u{1F5A8}');
+  const printBtn = el('button', { class: 'btn btn-info btn-icon', title: 'Print preview', onClick: () => onPrintPreview?.({ lines: cartManager.getLines(), discount, total: computeGross() }) }, '\u{1F5A8}');
   const cancelBtn = el('button', { class: 'btn btn-danger', onClick: () => { cartManager.clear(); discountInput.value = ''; discount = 0; selectedSeats = null; updateSeatButtons(); } }, [el('span', {}, '\u2298 Cancel')]);
   const holdBtn = el('button', { class: 'btn btn-info', onClick: async () => {
     if (cartManager.getLines().length === 0) { notification.error('Cart is empty.'); return; }
@@ -187,7 +187,10 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
       el('div', { class: 'cart-totals-row' }, [el('span', {}, 'Discount'), discountInput]),
       el('div', { class: 'cart-totals-row' }, [el('span', {}, ['Gross Price (inc ', taxInfoEl, '% GST)']), grossPriceEl])
     ]),
-    el('div', { class: 'cart-action-row' }, [printBtn, cancelBtn, holdBtn, payBtn, whatsappBtn])
+    el('div', { class: 'cart-actions' }, [
+      el('div', { class: 'cart-action-row-utility' }, [printBtn, cancelBtn]),
+      el('div', { class: 'cart-action-row-primary' }, [holdBtn, whatsappBtn, payBtn])
+    ])
   ]));
 
   function computeGross() {

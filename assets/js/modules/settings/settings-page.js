@@ -8,14 +8,19 @@ import { el } from '../../shared/utils.js';
 import { mountStoreProfile } from './store-profile.js';
 import { mountStoreTypeConfig } from './store-type-config.js';
 import { mountReportGenerator } from './report-generator-settings.js';
+import { mountProductPerformance } from './product-performance.js';
 import { mountEmailSettings } from './email-settings-panel.js';
 import { mountBackupSettings } from './backup-settings.js';
+import { mountBulkImport } from './bulk-import.js';
+import { createBackToPosButton } from '../../ui/back-to-pos-button.js';
 import notification from '../../ui/notification.js';
 
 const SECTIONS = [
   { id: 'store-profile', label: 'Store Profile', mount: mountStoreProfile },
   { id: 'store-type', label: 'Store Type', mount: (container, ctx) => mountStoreTypeConfig(container, { onChanged: ctx.onStoreTypeChanged }) },
+  { id: 'bulk-import', label: 'Bulk Product Import', mount: mountBulkImport },
   { id: 'report-generator', label: 'Report Generator', mount: mountReportGenerator },
+  { id: 'product-performance', label: 'Product Performance', mount: mountProductPerformance },
   { id: 'send-email', label: 'Send via Email', mount: mountEmailSettings },
   { id: 'data-backups', label: 'Data Backups', mount: mountBackupSettings }
 ];
@@ -32,7 +37,7 @@ export async function mountSettingsPage(container, { onStoreTypeChanged } = {}) 
 
   const content = el('div', { class: 'settings-page-content' });
 
-  container.appendChild(el('div', { class: 'view-header' }, [el('h2', {}, 'Settings')]));
+  container.appendChild(el('div', { class: 'view-header' }, [el('h2', {}, 'Settings'), createBackToPosButton()]));
   container.appendChild(el('div', { class: 'settings-page-layout' }, [menu, content]));
 
   async function selectSection(id) {

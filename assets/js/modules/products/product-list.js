@@ -7,8 +7,6 @@ import apiClient from '../../shared/api-client.js';
 import { el } from '../../shared/utils.js';
 import { renderProductCard } from './product-card.js';
 import { openProductForm } from './product-form.js';
-import { openCsvImportModal } from '../../ui/csv-import-modal.js';
-import { createActionMenu } from '../../ui/action-menu.js';
 import notification from '../../ui/notification.js';
 
 export async function mountProductList(container, { eventBus } = {}) {
@@ -27,18 +25,6 @@ export async function mountProductList(container, { eventBus } = {}) {
       onInput: (e) => { currentSearch = e.target.value; refresh(); }
     }),
     categorySelect,
-    createActionMenu([
-      {
-        label: '\u2b06 Import CSV',
-        onClick: () => openCsvImportModal({
-          title: 'Import Products from CSV',
-          templateEndpoint: '/inventory/products/csv-template',
-          templateFilename: 'product-import-template.csv',
-          importEndpoint: '/inventory/products/csv-import',
-          onImported: () => refresh()
-        })
-      }
-    ]),
     el('button', {
       class: 'btn btn-primary',
       onClick: () => openProductForm({ onSaved: () => refresh() })
