@@ -29,6 +29,7 @@ const { initLogger } = require('./core/logger');
 
 const buildCategoriesRouter = require('./api/categories');
 const buildCustomersRouter = require('./api/customers');
+const buildSuppliersRouter = require('./api/suppliers');
 const buildInventoryRouter = require('./api/inventory');
 const buildSettingsRouter = require('./api/settings');
 const buildTransactionsRouter = require('./api/transactions');
@@ -37,6 +38,13 @@ const buildUploadsRouter = require('./api/uploads');
 const buildReportsRouter = require('./api/reports');
 const buildActivationRouter = require('./api/activation');
 const buildBackupsRouter = require('./api/backups');
+const buildPurchaseOrdersRouter = require('./api/purchase-orders');
+const buildExpensesRouter = require('./api/expenses');
+const buildTallyRouter = require('./api/tally');
+const buildWhatsAppRouter = require('./api/whatsapp');
+const SqliteStore = require('./core/sqlite-store');
+const buildAiRouter = require('./api/ai');
+const { buildAuthMiddleware } = require('./api/auth-middleware');
 const { startScheduler } = require('./core/report-scheduler');
 const { startBackupScheduler } = require('./core/backup-scheduler');
 
@@ -46,6 +54,7 @@ async function createServer({ dataDir = appConfig.dataDir } = {}) {
 
   app.use(cors());
   app.use(bodyParser.json());
+  app.use(buildAuthMiddleware({ dataDir }));
   // No-cache for app assets: during development/preview the browser
   // must always revalidate, otherwise ES module changes (and the
   // occasional CSS tweak) stay hidden behind a stale cache for hours.
@@ -64,6 +73,7 @@ async function createServer({ dataDir = appConfig.dataDir } = {}) {
 
   app.use('/api/categories', buildCategoriesRouter({ dataDir }));
   app.use('/api/customers', buildCustomersRouter({ dataDir }));
+  app.use('/api/suppliers', buildSuppliersRouter({ dataDir, storeConfig: core.storeConfig }));
   app.use('/api/inventory', buildInventoryRouter(core));
   app.use('/api/settings', buildSettingsRouter(core));
   app.use('/api/transactions', buildTransactionsRouter(core));
@@ -74,6 +84,15 @@ async function createServer({ dataDir = appConfig.dataDir } = {}) {
   app.use('/api/reports', buildReportsRouter(core));
   app.use('/api/activation', buildActivationRouter(core));
   app.use('/api/backups', buildBackupsRouter(core));
+  app.use('/api/purchase-orders', buildPurchaseOrdersRouter(core));
+  app.use('/api/expenses', buildExpensesRouter(core));
+  app.use('/api/tally', buildTallyRouter({ ...core, dataDir }));
+  app.use('/api/whatsapp', buildWhatsAppRouter({
+    whatsappSettings: core.whatsappSettings,
+    customersDb: new SqliteStore(dataDir, 'customers'),
+    storeConfig: core.storeConfig
+  }));
+  app.use('/api/ai', buildAiRouter(core));
 
   const stopScheduler = startScheduler(core);
   const stopBackupScheduler = startBackupScheduler(core);
