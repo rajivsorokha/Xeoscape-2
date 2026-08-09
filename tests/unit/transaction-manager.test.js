@@ -6,17 +6,24 @@ const path = require('path');
 const ProductManager = require('../../core/product-manager');
 const InventoryManager = require('../../core/inventory-manager');
 const TransactionManager = require('../../core/transaction-manager');
+const StoreProfile = require('../../core/store-profile');
+const SqliteStore = require('../../core/sqlite-store');
 const storeConfig = require('../../core/store-config');
 
 describe('TransactionManager', () => {
-  let dataDir, productManager, inventoryManager, transactionManager, product;
+  let dataDir, productManager, inventoryManager, transactionManager, storeProfile, product;
 
   beforeEach(async () => {
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yourshopapp-test-'));
     storeConfig.setStoreType('generalRetail');
     productManager = new ProductManager(dataDir);
     inventoryManager = new InventoryManager(dataDir, productManager);
-    transactionManager = new TransactionManager(dataDir, productManager, inventoryManager);
+    storeProfile = new StoreProfile(dataDir);
+    // Tax off by default so the many existing exact-total assertions
+    // below don't all need updating -- tax-specific behavior gets its
+    // own tests further down instead.
+    await storeProfile.update({ chargeTax: false });
+    transactionManager = new TransactionManager(dataDir, productManager, inventoryManager, storeProfile);
 
     product = await productManager.create({ name: 'Widget', sku: 'WID-100', price: 10, stock: 5 });
   });
@@ -132,5 +139,116 @@ describe('TransactionManager', () => {
 
     const results = await transactionManager.list({ from, to });
     expect(results.map((t) => t.id)).toContain(txn.id);
+  });
+
+  describe('tax', () => {
+    beforeEach(async () => {
+      await storeProfile.update({ chargeTax: true, taxPercentage: 10 });
+    });
+
+    test('checkout actually charges tax (was previously display-only on the frontend, never charged or stored)', async () => {
+      const txn = await transactionManager.checkout({ items: [{ productId: product.id, quantity: 1 }] });
+      expect(txn.subtotal).toBe(10);
+      expect(txn.taxAmount).toBe(1); // 10% of 10
+      expect(txn.total).toBe(11);
+    });
+
+    test('tax is calculated on the discounted amount, not the pre-discount subtotal', async () => {
+      const txn = await transactionManager.checkout({ items: [{ productId: product.id, quantity: 1 }], discount: 2 });
+      expect(txn.taxAmount).toBe(0.8); // 10% of (10 - 2)
+      expect(txn.total).toBe(8.8);
+    });
+  });
+
+  describe('partial/due payment', () => {
+    let customer;
+
+    beforeEach(async () => {
+      // Due/credit payment is now B2B-only (see
+      // core/transaction-manager.js#checkout) -- switched here since
+      // the outer beforeEach defaults to 'generalRetail'.
+      storeConfig.setStoreType('b2bGeneralRetail');
+      const customersStore = new SqliteStore(dataDir, 'customers');
+      customer = await customersStore.insert({ id: 'cust-1', name: 'Jane Doe', balance: 0 });
+    });
+
+    test('rejects a partial payment with no customer attached', async () => {
+      await expect(
+        transactionManager.checkout({ items: [{ productId: product.id, quantity: 1 }], paidAmount: 4 })
+      ).rejects.toThrow('Select a customer');
+    });
+
+    test('allows a partial payment when a customer is attached, and credits the shortfall to their balance', async () => {
+      const txn = await transactionManager.checkout({
+        items: [{ productId: product.id, quantity: 1 }],
+        customerId: customer.id,
+        paidAmount: 4
+      });
+      expect(txn.total).toBe(10);
+      expect(txn.paidAmount).toBe(4);
+      expect(txn.dueAmount).toBe(6);
+
+      const customersStore = new SqliteStore(dataDir, 'customers');
+      const updated = await customersStore.findById(customer.id);
+      expect(updated.balance).toBe(6);
+    });
+
+    test('rejects a partial payment outside B2B General Retail, even with a customer attached', async () => {
+      storeConfig.setStoreType('generalRetail');
+      await expect(
+        transactionManager.checkout({
+          items: [{ productId: product.id, quantity: 1 }],
+          customerId: customer.id,
+          paidAmount: 4
+        })
+      ).rejects.toThrow('only available for B2B General Retail');
+    });
+  });
+
+  describe('sales returns', () => {
+    test('returning an item restocks it and creates a linked negative-total transaction', async () => {
+      const sale = await transactionManager.checkout({ items: [{ productId: product.id, quantity: 3 }] });
+      expect((await productManager.get(product.id)).stock).toBe(2);
+
+      const returnTxn = await transactionManager.returnItems(sale.id, {
+        items: [{ productId: product.id, quantity: 1 }],
+        reason: 'Customer changed mind'
+      });
+
+      expect(returnTxn.total).toBe(-10);
+      expect(returnTxn.type).toBe('return');
+      expect(returnTxn.status).toBe('completed'); // nets into revenue reports automatically
+      expect(returnTxn.originalTransactionId).toBe(sale.id);
+      expect((await productManager.get(product.id)).stock).toBe(3); // restocked
+    });
+
+    test('cannot return more of an item than was originally purchased, including across multiple partial returns', async () => {
+      const sale = await transactionManager.checkout({ items: [{ productId: product.id, quantity: 2 }] });
+      await transactionManager.returnItems(sale.id, { items: [{ productId: product.id, quantity: 1 }] });
+
+      await expect(
+        transactionManager.returnItems(sale.id, { items: [{ productId: product.id, quantity: 2 }] })
+      ).rejects.toThrow('only 1 of 2 remain returnable');
+    });
+
+    test('cannot return against a pending (unpaid/held) order', async () => {
+      const held = await transactionManager.hold({ items: [{ productId: product.id, quantity: 1 }] });
+      await expect(
+        transactionManager.returnItems(held.id, { items: [{ productId: product.id, quantity: 1 }] })
+      ).rejects.toThrow('Only completed sales');
+    });
+
+    test('a return nets out of per-product revenue/units, not just the transaction total (regression: topProducts/productPerformance sum line items directly across all transactions with no return special-casing, so a positive-valued return line item would silently double-count as more revenue instead of netting)', async () => {
+      const ReportGenerator = require('../../core/report-generator');
+      const reportGenerator = new ReportGenerator(transactionManager, productManager, inventoryManager);
+
+      const sale = await transactionManager.checkout({ items: [{ productId: product.id, quantity: 2 }] }); // 20
+      await transactionManager.returnItems(sale.id, { items: [{ productId: product.id, quantity: 1 }] }); // -10
+
+      const top = await reportGenerator.topProducts({});
+      const row = top.find((p) => p.productId === product.id);
+      expect(row.revenue).toBe(10); // 20 - 10, not 30
+      expect(row.quantity).toBe(1); // 2 - 1, not 3
+    });
   });
 });

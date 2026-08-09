@@ -75,4 +75,47 @@ describe('ProductManager', () => {
     expect(product.expirationDate).toBe('2027-01-01');
     storeConfig.setStoreType('generalRetail');
   });
+
+  describe('category auto-creation', () => {
+    // A product's `category` was always just free text with no link
+    // to the actual categories collection -- creating/importing
+    // products never made the category appear on the Categories
+    // screen, even though the text showed up fine on the product
+    // itself. This closes that gap.
+    const SqliteStore = require('../../core/sqlite-store');
+
+    test('creating a product with a brand-new category name auto-creates a matching category record', async () => {
+      await productManager.create({ name: 'Widget', sku: 'W1', price: 5, stock: 1, category: 'Brand New Category' });
+
+      const categoriesDb = new SqliteStore(dataDir, 'categories');
+      const categories = await categoriesDb.readAll();
+      expect(categories.some((c) => c.name === 'Brand New Category')).toBe(true);
+    });
+
+    test('does not create a duplicate category (case-insensitive) for a category that already exists', async () => {
+      await productManager.create({ name: 'Widget A', sku: 'WA', price: 5, stock: 1, category: 'Snacks' });
+      await productManager.create({ name: 'Widget B', sku: 'WB', price: 5, stock: 1, category: 'snacks' }); // different case
+
+      const categoriesDb = new SqliteStore(dataDir, 'categories');
+      const categories = await categoriesDb.readAll();
+      expect(categories.filter((c) => c.name.toLowerCase() === 'snacks')).toHaveLength(1);
+    });
+
+    test('updating a product to a new category also auto-creates it', async () => {
+      const product = await productManager.create({ name: 'Widget', sku: 'W2', price: 5, stock: 1, category: 'Original' });
+      await productManager.update(product.id, { category: 'Renamed Category' });
+
+      const categoriesDb = new SqliteStore(dataDir, 'categories');
+      const categories = await categoriesDb.readAll();
+      expect(categories.some((c) => c.name === 'Renamed Category')).toBe(true);
+    });
+
+    test('a product with no category set does not create anything', async () => {
+      await productManager.create({ name: 'Widget', sku: 'W3', price: 5, stock: 1 });
+
+      const categoriesDb = new SqliteStore(dataDir, 'categories');
+      const categories = await categoriesDb.readAll();
+      expect(categories).toHaveLength(0);
+    });
+  });
 });

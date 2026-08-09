@@ -6,6 +6,7 @@ const path = require('path');
 const ProductManager = require('../../core/product-manager');
 const InventoryManager = require('../../core/inventory-manager');
 const TransactionManager = require('../../core/transaction-manager');
+const StoreProfile = require('../../core/store-profile');
 const ReportGenerator = require('../../core/report-generator');
 const storeConfig = require('../../core/store-config');
 
@@ -18,8 +19,10 @@ describe('ReportGenerator#productPerformance', () => {
     storeConfig.setStoreType('generalRetail');
     productManager = new ProductManager(dataDir);
     inventoryManager = new InventoryManager(dataDir, productManager);
-    transactionManager = new TransactionManager(dataDir, productManager, inventoryManager);
-    reportGenerator = new ReportGenerator(transactionManager, productManager, inventoryManager);
+    const storeProfile = new StoreProfile(dataDir);
+    await storeProfile.update({ chargeTax: false });
+    transactionManager = new TransactionManager(dataDir, productManager, inventoryManager, storeProfile);
+    reportGenerator = new ReportGenerator(transactionManager, productManager, inventoryManager, dataDir);
 
     // A realistic revenue spread across 4 products so ABC tiers land
     // where intuition expects: hero is the clear top performer but
@@ -95,8 +98,10 @@ describe('ReportGenerator#productPerformance', () => {
     const emptyDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yourshopapp-report-empty-'));
     const pm = new ProductManager(emptyDataDir);
     const im = new InventoryManager(emptyDataDir, pm);
-    const tm = new TransactionManager(emptyDataDir, pm, im);
-    const rg = new ReportGenerator(tm, pm, im);
+    const emptyStoreProfile = new StoreProfile(emptyDataDir);
+    await emptyStoreProfile.update({ chargeTax: false });
+    const tm = new TransactionManager(emptyDataDir, pm, im, emptyStoreProfile);
+    const rg = new ReportGenerator(tm, pm, im, emptyDataDir);
     await pm.create({ name: 'Lonely Item', sku: 'LONE-1', price: 10, stock: 5 });
 
     const report = await rg.productPerformance({});
@@ -116,8 +121,10 @@ describe('ReportGenerator#inventoryMovement', () => {
     storeConfig.setStoreType('generalRetail');
     productManager = new ProductManager(dataDir);
     inventoryManager = new InventoryManager(dataDir, productManager);
-    transactionManager = new TransactionManager(dataDir, productManager, inventoryManager);
-    reportGenerator = new ReportGenerator(transactionManager, productManager, inventoryManager);
+    const storeProfile = new StoreProfile(dataDir);
+    await storeProfile.update({ chargeTax: false });
+    transactionManager = new TransactionManager(dataDir, productManager, inventoryManager, storeProfile);
+    reportGenerator = new ReportGenerator(transactionManager, productManager, inventoryManager, dataDir);
 
     product = await productManager.create({ name: 'Tracked Item', sku: 'TRK-1', price: 10, stock: 100, minStock: 10 });
   });
