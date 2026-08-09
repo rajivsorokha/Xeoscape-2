@@ -11,11 +11,13 @@ const state = { user: null };
 async function login(username, password) {
   const user = await apiClient.post('/users/authenticate', { username, password });
   state.user = user;
+  apiClient.setCurrentUserId(user.id);
   return user;
 }
 
 function logout() {
   state.user = null;
+  apiClient.setCurrentUserId(null);
 }
 
 function getCurrentUser() {

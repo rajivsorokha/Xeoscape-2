@@ -84,6 +84,42 @@ export async function mountBackupSettings(container) {
   ]);
   container.appendChild(scheduleForm);
 
+  // --- Restore from a downloaded backup .zip (fresh-install path) ---
+  container.appendChild(el('div', { class: 'settings-section', style: 'margin-top:1.5rem;' }, [
+    el('h4', {}, 'Restore From a Downloaded Backup'),
+    el('p', { class: 'settings-hint' },
+      'If this is a fresh install (new computer, or after a Windows reinstall/wipe) and you have no backup history here yet, ' +
+      'upload a backup .zip you downloaded previously to restore from it.'
+    ),
+    (() => {
+      const fileInput = el('input', { type: 'file', accept: '.zip' });
+      const uploadBtn = el('button', {
+        class: 'btn btn-secondary',
+        onClick: async () => {
+          const file = fileInput.files[0];
+          if (!file) {
+            notification.warning('Choose a backup .zip file first.');
+            return;
+          }
+          if (!window.confirm('Restore from this file? This will take effect the next time the app is restarted, and your current data will be safety-backed-up first.')) return;
+          uploadBtn.disabled = true;
+          uploadBtn.textContent = 'Uploading\u2026';
+          try {
+            const result = await apiClient.uploadFile('/backups/upload-restore', file);
+            notification.success(result.message);
+            fileInput.value = '';
+          } catch (err) {
+            notification.error(err.message);
+          } finally {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Upload & Restore';
+          }
+        }
+      }, 'Upload & Restore');
+      return el('div', { class: 'form-field', style: 'display:flex; gap:0.5rem; align-items:center;' }, [fileInput, uploadBtn]);
+    })()
+  ]));
+
   async function refresh() {
     try {
       const [currentSettings, backups] = await Promise.all([

@@ -5,6 +5,8 @@ import apiClient from '../../shared/api-client.js';
 import { el } from '../../shared/utils.js';
 import { renderTable } from '../../ui/table-manager.js';
 import { openCustomerForm } from './customer-form.js';
+import { formatMoney } from '../../shared/formatters.js';
+import settingsStore from '../../shared/settings-store.js';
 import notification from '../../ui/notification.js';
 
 export async function mountCustomerList(container) {
@@ -29,7 +31,12 @@ export async function mountCustomerList(container) {
           { key: 'name', label: 'Name' },
           { key: 'phone', label: 'Phone' },
           { key: 'email', label: 'Email' },
-          { key: 'loyaltyPoints', label: 'Loyalty Points' }
+          { key: 'loyaltyPoints', label: 'Loyalty Points' },
+          {
+            key: 'balance',
+            label: 'Balance Due',
+            render: (c) => el('span', { style: c.balance > 0 ? 'color:var(--color-danger); font-weight:600;' : '' }, formatMoney(c.balance || 0, settingsStore.getCurrencySymbol()))
+          }
         ],
         rows: customers,
         onRowClick: (customer) => openCustomerForm({ customer, onSaved: () => refresh() })

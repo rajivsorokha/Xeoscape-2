@@ -41,6 +41,7 @@ export async function mountProductPerformance(container) {
   let currentData = null;
 
   const summaryBox = el('div', { class: 'report-summary-box' }, 'Loading...');
+  const abcBox = el('div', { class: 'report-summary-box' }, '');
   const flaggedToggle = el('input', {
     type: 'checkbox',
     onChange: (e) => { onlyFlagged = e.target.checked; renderTable(); }
@@ -64,6 +65,7 @@ export async function mountProductPerformance(container) {
 
   container.appendChild(el('div', { class: 'report-range-row' }, rangeButtons));
   container.appendChild(summaryBox);
+  container.appendChild(abcBox);
   container.appendChild(el('div', { class: 'perf-filter-row' }, [
     el('label', { class: 'perf-flag-toggle' }, [flaggedToggle, ' Show only flagged slow movers'])
   ]));
@@ -80,12 +82,33 @@ export async function mountProductPerformance(container) {
     renderTable();
   }
 
+  function renderAbcRollup() {
+    const d = currentData;
+    const grades = { A: { count: 0, revenue: 0 }, B: { count: 0, revenue: 0 }, C: { count: 0, revenue: 0 } };
+    d.items.forEach((r) => {
+      grades[r.abcClass].count += 1;
+      grades[r.abcClass].revenue += r.revenue;
+    });
+    abcBox.innerHTML = '';
+    abcBox.appendChild(el('div', { class: 'report-summary-label', style: 'margin-bottom:0.5rem;' }, 'ABC Analysis \u2014 revenue grade breakdown'));
+    abcBox.appendChild(el('div', { class: 'report-summary-grid' }, ['A', 'B', 'C'].map((grade) => {
+      const g = grades[grade];
+      const pct = d.totalRevenue ? Number(((g.revenue / d.totalRevenue) * 100).toFixed(1)) : 0;
+      return el('div', { class: 'report-summary-cell' }, [
+        el('div', {}, [el('span', { class: `perf-abc-badge perf-abc-${grade}`, title: ABC_HINT[grade] }, grade)]),
+        el('div', { class: 'report-summary-value' }, formatMoney(Number(g.revenue.toFixed(2)))),
+        el('div', { class: 'report-summary-label' }, `${pct}% of revenue \u00b7 ${g.count} product${g.count === 1 ? '' : 's'}`)
+      ]);
+    })));
+  }
+
   async function load() {
     summaryBox.textContent = 'Loading...';
     tableWrap.innerHTML = '';
     try {
       currentData = await apiClient.get(`/reports/product-performance?range=${selectedRange}`);
       renderSummary();
+      renderAbcRollup();
       renderTable();
     } catch (err) {
       notification.error(`Failed to load product performance: ${err.message}`);

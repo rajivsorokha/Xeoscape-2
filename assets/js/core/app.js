@@ -27,6 +27,9 @@ import { openUserForm } from '../modules/settings/user-form.js';
 import { openUserTableModal } from '../modules/settings/user-table-modal.js';
 import { openAccountInfoModal } from '../modules/settings/account-info.js';
 import { mountSettingsPage } from '../modules/settings/settings-page.js';
+import { mountAiAssistantWidget } from '../modules/ai-assistant/chat-widget.js';
+import { mountAlertsWidget } from '../modules/alerts/alerts-widget.js';
+import { initIdleLock } from './idle-lock.js';
 import session from './session.js';
 
 export default class App {
@@ -42,6 +45,7 @@ export default class App {
     await settingsStore.load();
     this._registerRoutes();
     this._buildTopbar();
+    initIdleLock();
     this.eventBus.on('route:changed', ({ routeId }) => this._setActiveNav(routeId));
     this.router.start('pos');
     await this._loadStoreTypeLabel();
@@ -137,9 +141,26 @@ export default class App {
       }
     });
 
+    // Hide (not just disable) nav entry points a role can't use, so the
+    // UI honestly reflects what the backend now actually enforces (see
+    // api/auth-middleware.js) rather than showing buttons that 403 when
+    // clicked. Settings covers Store Profile/Type, Reports, Purchase
+    // Orders, Backups, Email, and AI Assistant -- all perm_settings on
+    // the backend -- so the single gear icon is gated the same way.
+    const currentUser = session.getCurrentUser();
+    const isAdmin = currentUser?.role === 'admin';
+    const canManageUsers = isAdmin || Boolean(currentUser?.permissions?.perm_users);
+    const canAccessSettings = isAdmin || Boolean(currentUser?.permissions?.perm_settings);
+    if (!canManageUsers) usersGroup.style.display = 'none';
+    if (!canAccessSettings) settingsBtn.style.display = 'none';
+
     row1.innerHTML = '';
-    row1.appendChild(el('div', { class: 'app-header-group' }, [productsGroup, categoriesGroup, openTabsBtn, ordersBtn]));
-    row1.appendChild(el('div', { class: 'app-header-group' }, [settingsBtn, posTxnToggleBtn, usersGroup, adminBtn, logoutBtn]));
+    const leftGroup = el('div', { class: 'app-header-group' }, [productsGroup, categoriesGroup, openTabsBtn, ordersBtn]);
+    row1.appendChild(leftGroup);
+    mountAlertsWidget(leftGroup);
+    const rightGroup = el('div', { class: 'app-header-group' }, [settingsBtn, posTxnToggleBtn, usersGroup, adminBtn, logoutBtn]);
+    row1.appendChild(rightGroup);
+    mountAiAssistantWidget(rightGroup);
 
     this._setActiveNav('pos');
   }

@@ -29,15 +29,24 @@ export async function mountTransactionList(container) {
   const txnValueEl = el('div', { class: 'stat-value' }, '0');
   const itemsValueEl = el('div', { class: 'stat-value' }, '0');
   const productsValueEl = el('div', { class: 'stat-value' }, '0');
+  const creditValueEl = el('div', { class: 'stat-value' }, '0');
 
   container.appendChild(el('div', { class: 'view-header' }, [el('h2', {}, 'Transactions'), createBackToPosButton()]));
 
-  container.appendChild(el('div', { class: 'stats-row' }, [
+  const statCards = [
     el('div', { class: 'stat-card stat-card-green' }, [el('div', { class: 'stat-label' }, 'SALES'), salesValueEl]),
     el('div', { class: 'stat-card stat-card-warning' }, [el('div', { class: 'stat-label' }, 'TRANSACTIONS'), txnValueEl]),
     el('div', { class: 'stat-card stat-card-info' }, [el('div', { class: 'stat-label' }, 'ITEMS SOLD'), itemsValueEl]),
     el('div', { class: 'stat-card stat-card-green' }, [el('div', { class: 'stat-label' }, 'PRODUCTS'), productsValueEl])
-  ]));
+  ];
+  // Outstanding Credit only means anything for B2B General Retail
+  // (the only store type Credit payment is available for -- see
+  // core/transaction-manager.js#checkout) -- omitted entirely
+  // elsewhere rather than always showing a meaningless ₹0.
+  if (settingsStore.isB2B()) {
+    statCards.push(el('div', { class: 'stat-card stat-card-warning' }, [el('div', { class: 'stat-label' }, 'OUTSTANDING CREDIT'), creditValueEl]));
+  }
+  container.appendChild(el('div', { class: 'stats-row' }, statCards));
 
   // --- Filter row ---
   const cashierSelect = el('select', { onChange: (e) => { filters.cashier = e.target.value; refresh(); } }, [el('option', { value: '' }, 'All Cashiers')]);
@@ -99,12 +108,13 @@ export async function mountTransactionList(container) {
       const cleanQuery = Object.fromEntries(Object.entries(query).filter(([, v]) => v));
       const params = new URLSearchParams(cleanQuery).toString();
 
-      const [transactions, summary, topProducts, products, users] = await Promise.all([
+      const [transactions, summary, topProducts, products, users, outstandingCredit] = await Promise.all([
         apiClient.get(`/transactions${params ? `?${params}` : ''}`),
         apiClient.get(`/transactions/reports/summary${params ? `?${params}` : ''}`),
         apiClient.get(`/transactions/reports/top-products${params ? `?${params}` : ''}`),
         apiClient.get('/inventory/products'),
-        apiClient.get('/users')
+        apiClient.get('/users'),
+        settingsStore.isB2B() ? apiClient.get('/transactions/reports/outstanding-credit') : Promise.resolve(null)
       ]);
 
       const cashierName = Object.fromEntries(users.map((u) => [u.id, u.displayName || u.username]));
@@ -117,6 +127,7 @@ export async function mountTransactionList(container) {
       txnValueEl.textContent = String(summary.totalTransactions);
       itemsValueEl.textContent = String(summary.itemsSold);
       productsValueEl.textContent = String(products.length);
+      if (outstandingCredit) creditValueEl.textContent = formatMoney(outstandingCredit.totalOutstanding, symbol);
 
       renderTable(productsTable, {
         columns: [
@@ -135,8 +146,21 @@ export async function mountTransactionList(container) {
           { key: 'createdAt', label: 'Date', render: (t) => formatDate(t.createdAt) },
           { key: 'total', label: 'Total', render: (t) => formatMoney(t.total, symbol) },
           { key: 'paidAmount', label: 'Paid', render: (t) => formatMoney(t.paidAmount ?? t.total, symbol) },
+          {
+            key: 'dueAmount',
+            label: 'Due',
+            render: (t) => (t.dueAmount > 0
+              ? el('span', { style: 'color:var(--color-danger); font-weight:600;' }, formatMoney(t.dueAmount, symbol))
+              : '\u2014')
+          },
           { key: 'change', label: 'Change', render: (t) => formatMoney(t.change ?? 0, symbol) },
-          { key: 'paymentMethod', label: 'Method' },
+          {
+            key: 'paymentMethod',
+            label: 'Method',
+            render: (t) => (t.paymentMethod === 'credit'
+              ? el('span', { class: 'po-status-badge po-status-partially_received' }, 'Credit')
+              : (t.paymentMethod || '\u2014'))
+          },
           { key: 'till', label: 'Till', render: () => '1' },
           { key: 'cashierId', label: 'Cashier', render: (t) => cashierName[t.cashierId] || '-' },
           {

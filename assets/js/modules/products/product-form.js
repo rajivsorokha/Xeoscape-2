@@ -70,9 +70,12 @@ function buildPictureField(values) {
   ]);
 }
 
-export async function openProductForm({ product = null, onSaved } = {}) {
+export async function openProductForm({ product = null, initialValues = null, onSaved, onClose } = {}) {
   const schema = await apiClient.get('/inventory/fields');
-  const values = { ...(product || {}) };
+  // `product` (with an id) means edit-mode -- PUT. `initialValues` just
+  // pre-fills fields for a brand-new product (e.g. a scanned barcode
+  // and its looked-up name) without switching to edit-mode -- POST.
+  const values = { ...(product || {}), ...(initialValues || {}) };
   const errorEls = {};
 
   const fields = schema.fields.map((fieldDef) => {
@@ -112,6 +115,7 @@ export async function openProductForm({ product = null, onSaved } = {}) {
   modalManager.open({
     title: product ? 'Edit Product' : 'New Product',
     content: formEl,
+    onClose,
     actions: [
       { label: 'Cancel', className: 'btn-secondary' },
       {

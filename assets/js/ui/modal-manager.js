@@ -6,10 +6,12 @@ import { el } from '../shared/utils.js';
 class ModalManager {
   constructor() {
     this.overlay = null;
+    this.onCloseCallback = null;
   }
 
-  open({ title = '', content, actions = [], size = 'default' }) {
+  open({ title = '', content, actions = [], size = 'default', onClose = null }) {
     this.close();
+    this.onCloseCallback = onClose;
 
     const actionButtons = actions.map((action) =>
       el('button', {
@@ -42,6 +44,13 @@ class ModalManager {
       this.overlay.parentNode.removeChild(this.overlay);
     }
     this.overlay = null;
+    // Fire and clear regardless of *why* the modal closed (Save,
+    // Cancel, the X button, or clicking the overlay) -- callers that
+    // need to run cleanup (e.g. refocusing a scan input for the next
+    // scan) shouldn't have to duplicate that across every action.
+    const callback = this.onCloseCallback;
+    this.onCloseCallback = null;
+    if (callback) callback();
   }
 }
 

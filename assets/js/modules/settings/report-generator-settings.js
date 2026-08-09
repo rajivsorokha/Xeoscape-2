@@ -76,7 +76,12 @@ export async function mountReportGenerator(container) {
         el('div', { class: 'report-summary-cell' }, [el('div', { class: 'report-summary-label' }, 'Revenue'), el('div', { class: 'report-summary-value' }, formatMoney(report.summary.totalRevenue))]),
         el('div', { class: 'report-summary-cell' }, [el('div', { class: 'report-summary-label' }, 'Transactions'), el('div', { class: 'report-summary-value' }, String(report.summary.totalTransactions))]),
         el('div', { class: 'report-summary-cell' }, [el('div', { class: 'report-summary-label' }, 'Items Sold'), el('div', { class: 'report-summary-value' }, String(report.summary.itemsSold))]),
-        el('div', { class: 'report-summary-cell' }, [el('div', { class: 'report-summary-label' }, 'Avg. Sale'), el('div', { class: 'report-summary-value' }, formatMoney(report.summary.averageTransactionValue))])
+        el('div', { class: 'report-summary-cell' }, [el('div', { class: 'report-summary-label' }, 'Avg. Sale'), el('div', { class: 'report-summary-value' }, formatMoney(report.summary.averageTransactionValue))]),
+        el('div', { class: 'report-summary-cell' }, [el('div', { class: 'report-summary-label' }, 'Collected'), el('div', { class: 'report-summary-value' }, formatMoney(report.summary.totalPaid))]),
+        el('div', { class: 'report-summary-cell' }, [
+          el('div', { class: 'report-summary-label' }, 'Credit Extended'),
+          el('div', { class: 'report-summary-value', style: report.summary.totalDue > 0 ? 'color:var(--color-danger);' : '' }, formatMoney(report.summary.totalDue))
+        ])
       ]));
       if (report.topProducts.length) {
         summaryBox.appendChild(el('div', { class: 'report-top-products' }, [
