@@ -1,17 +1,37 @@
 // core/report-generator.js
 // Generates sales and inventory reports from transaction/product data.
 
+const SqliteStore = require('./sqlite-store');
+
 class ReportGenerator {
-  constructor(transactionManager, productManager, inventoryManager) {
+  constructor(transactionManager, productManager, inventoryManager, dataDir) {
     this.transactionManager = transactionManager;
     this.productManager = productManager;
     this.inventoryManager = inventoryManager;
+    // Only used by outstandingCredit() below -- current customer
+    // balances are the source of truth for what's owed *right now*
+    // (a transaction's own dueAmount is just a snapshot of what was
+    // deferred at sale time, and doesn't reflect payments made since).
+    this.customersDb = dataDir ? new SqliteStore(dataDir, 'customers') : null;
   }
 
   async salesSummary({ from, to } = {}) {
     const transactions = await this.transactionManager.list({ from, to, status: 'completed' });
 
-    const totalRevenue = transactions.reduce((sum, t) => sum + t.total, 0);
+    // Revenue excludes tax collected -- that's owed to the tax
+    // authority, not store income. `taxAmount` defaults to 0 for
+    // transactions from before checkout() actually charged tax (see
+    // core/transaction-manager.js), which correctly reflects that no
+    // tax was actually collected on those historical sales either.
+    const totalRevenue = transactions.reduce((sum, t) => sum + (t.total - (t.taxAmount || 0)), 0);
+    const totalTax = transactions.reduce((sum, t) => sum + (t.taxAmount || 0), 0);
+    // Collected vs extended-on-credit within this date range (B2B
+    // General Retail's Credit payment method -- see
+    // core/transaction-manager.js#checkout). totalPaid + totalDue ==
+    // totalRevenue + totalTax == the tax-inclusive total of every
+    // completed sale in range.
+    const totalPaid = transactions.reduce((sum, t) => sum + (t.paidAmount ?? t.total), 0);
+    const totalDue = transactions.reduce((sum, t) => sum + (t.dueAmount || 0), 0);
     const totalTransactions = transactions.length;
     const itemsSold = transactions.reduce(
       (sum, t) => sum + t.items.reduce((s, li) => s + li.quantity, 0),
@@ -22,11 +42,37 @@ class ReportGenerator {
       from: from || null,
       to: to || null,
       totalRevenue: Number(totalRevenue.toFixed(2)),
+      totalTax: Number(totalTax.toFixed(2)),
+      totalPaid: Number(totalPaid.toFixed(2)),
+      totalDue: Number(totalDue.toFixed(2)),
       totalTransactions,
       itemsSold,
       averageTransactionValue: totalTransactions
         ? Number((totalRevenue / totalTransactions).toFixed(2))
         : 0
+    };
+  }
+
+  /**
+   * Who currently owes money and how much -- B2B General Retail's
+   * Credit payment method (see core/transaction-manager.js#checkout).
+   * Deliberately NOT date-ranged and NOT summed from transactions'
+   * dueAmount fields: a customer's `balance` is the one place that
+   * reflects payments made *after* the sale (via
+   * POST /api/customers/:id/pay-balance), so it's the only accurate
+   * "what's owed right now" figure. Summing historical dueAmounts
+   * would double-count anything already paid off.
+   */
+  async outstandingCredit() {
+    if (!this.customersDb) return { totalOutstanding: 0, customers: [] };
+    const customers = (await this.customersDb.readAll()).filter((c) => (c.balance || 0) > 0);
+    const totalOutstanding = Number(customers.reduce((sum, c) => sum + (c.balance || 0), 0).toFixed(2));
+    return {
+      totalOutstanding,
+      customerCount: customers.length,
+      customers: customers
+        .map((c) => ({ id: c.id, name: c.name, phone: c.phone, balance: c.balance }))
+        .sort((a, b) => b.balance - a.balance)
     };
   }
 
@@ -197,7 +243,12 @@ class ReportGenerator {
       this.productManager.list()
     ]);
 
-    const totalRevenue = Number(transactions.reduce((sum, t) => sum + t.total, 0).toFixed(2));
+    // Tax-exclusive, matching the per-product revenue figures below
+    // (computed from line items, which are inherently tax-exclusive --
+    // tax is applied at the transaction level, not per line). Mixing a
+    // tax-inclusive denominator with tax-exclusive numerators would
+    // silently understate every product's revenue share.
+    const totalRevenue = Number(transactions.reduce((sum, t) => sum + (t.total - (t.taxAmount || 0)), 0).toFixed(2));
     const totalBaskets = transactions.length;
 
     const tally = new Map();
@@ -281,6 +332,72 @@ class ReportGenerator {
       unitsSoldMean: Number(mean.toFixed(2)),
       unitsSoldStdDev: Number(stdDev.toFixed(2)),
       items: sorted
+    };
+  }
+
+  /**
+   * Stock on Hand: cost and retail value of everything currently in
+   * inventory, optionally as of a past date and/or filtered to one
+   * vendor.
+   *
+   *  - `asOf`: when given, stock quantities are reconstructed from
+   *    stock_movements history via inventoryManager.stockAsOf, which
+   *    works backward from current stock by reversing movements after
+   *    that date -- accurate as long as movement history is complete
+   *    back to that point.
+   *  - `vendor`: exact match (case-insensitive) against the product's
+   *    Vendor field, when set.
+   *  - retailValue uses each product's current price (price history
+   *    isn't tracked, so a past `asOf` still prices at today's price --
+   *    only the quantity is retroactive).
+   *  - costValue is null per-row when the product has no Cost Price
+   *    set, and excluded from the cost total rather than treated as 0
+   *    (so the total isn't silently understated).
+   */
+  async stockOnHand({ asOf, vendor } = {}) {
+    let products = await this.productManager.list();
+    if (vendor) {
+      const q = vendor.toLowerCase();
+      products = products.filter((p) => (p.vendor || '').toLowerCase() === q);
+    }
+
+    const items = [];
+    for (const p of products) {
+      const quantity = asOf ? await this.inventoryManager.stockAsOf(p.id, asOf) : (p.stock || 0);
+      const cost = typeof p.cost === 'number' ? p.cost : null;
+      const price = typeof p.price === 'number' ? p.price : 0;
+      items.push({
+        productId: p.id,
+        name: p.name,
+        sku: p.sku || '',
+        vendor: p.vendor || '',
+        category: p.category || null,
+        quantity,
+        cost,
+        price,
+        costValue: cost != null ? Number((cost * quantity).toFixed(2)) : null,
+        retailValue: Number((price * quantity).toFixed(2))
+      });
+    }
+
+    items.sort((a, b) => b.retailValue - a.retailValue);
+
+    const totalUnits = items.reduce((s, i) => s + i.quantity, 0);
+    const totalCostValue = Number(
+      items.filter((i) => i.costValue != null).reduce((s, i) => s + i.costValue, 0).toFixed(2)
+    );
+    const totalRetailValue = Number(items.reduce((s, i) => s + i.retailValue, 0).toFixed(2));
+    const itemsMissingCost = items.filter((i) => i.costValue == null).length;
+
+    return {
+      asOf: asOf || null,
+      vendor: vendor || null,
+      totalProducts: items.length,
+      totalUnits,
+      totalCostValue,
+      totalRetailValue,
+      itemsMissingCost,
+      items
     };
   }
 }

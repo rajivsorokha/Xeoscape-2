@@ -29,6 +29,26 @@ const fs = require('fs');
 const path = require('path');
 const SqliteStore = require('./sqlite-store');
 
+// Every collection now backed by store.sqlite (see the `new
+// SqliteStore(dataDir, '<name>')` call sites across core/ and api/).
+// Each one may still have a legacy `<name>.nedb` and/or `<name>.json`
+// source file sitting in dataDir from before the SQLite migration --
+// SqliteStore reads those exactly once (to migrate) and then deletes
+// them (see core/sqlite-store.js#_cleanupLegacyFiles), but a backup
+// taken before that cleanup has run (e.g. right after upgrading, but
+// before the app has been restarted) would otherwise still copy them.
+// Excluding them here by name keeps backups limited to the files that
+// actually matter: store.sqlite/-wal/-shm, store_type.json (still
+// live -- see store-config.js), and anything else in dataDir.
+const SQLITE_COLLECTIONS = [
+  'transactions', 'backup_settings', 'stock_movements', 'products',
+  'store_profile', 'email_settings', 'activation', 'purchase_orders',
+  'ai_settings', 'categories', 'users', 'customers'
+];
+const LEGACY_FILENAMES = new Set(
+  SQLITE_COLLECTIONS.flatMap((name) => [`${name}.nedb`, `${name}.json`])
+);
+
 const DEFAULT_BACKUP_SETTINGS = {
   enabled: true,
   frequency: 'daily', // 'daily' | 'weekly'
@@ -115,7 +135,11 @@ class BackupManager {
     try {
       fs.cpSync(this.dataDir, backupPath, {
         recursive: true,
-        filter: (src) => path.resolve(src) !== path.resolve(this.backupsDir)
+        filter: (src) => {
+          if (path.resolve(src) === path.resolve(this.backupsDir)) return false;
+          if (LEGACY_FILENAMES.has(path.basename(src))) return false;
+          return true;
+        }
       });
       await this.updateSettings({ lastBackupAt: new Date().toISOString(), lastBackupStatus: 'success' });
       await this.pruneOldBackups();
@@ -124,6 +148,41 @@ class BackupManager {
       await this.updateSettings({ lastBackupAt: new Date().toISOString(), lastBackupStatus: 'failed' });
       throw err;
     }
+  }
+
+  /**
+   * Imports a previously-downloaded backup .zip (see zipBackupTo) as a
+   * new local backup entry, then immediately stages it for restore --
+   * the "reinstalled on a wiped machine, restore from the zip I saved
+   * somewhere safe" path. Basic sanity check: a real backup's zip
+   * contains store.sqlite at its root: an arbitrary/corrupt zip is
+   * rejected before anything is written to the backups folder,
+   * ensuring an emptied dataDir at restore time (see
+   * applyPendingRestoreIfAny) is only ever imminently backfilled by
+   * something loosely validated to be a real backup.
+   */
+  async importZipAndRequestRestore(zipBuffer) {
+    const AdmZip = require('adm-zip');
+    let zip;
+    try {
+      zip = new AdmZip(zipBuffer);
+    } catch (err) {
+      throw new Error('That file is not a valid .zip archive.');
+    }
+
+    const entries = zip.getEntries();
+    const hasSqliteFile = entries.some((e) => !e.isDirectory && e.entryName === 'store.sqlite');
+    if (!hasSqliteFile) {
+      throw new Error('That doesn\'t look like a Xeoscape backup .zip (no store.sqlite found at its root).');
+    }
+
+    if (!fs.existsSync(this.backupsDir)) fs.mkdirSync(this.backupsDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupName = `backup-uploaded-${timestamp}`;
+    const backupPath = path.join(this.backupsDir, backupName);
+    zip.extractAllTo(backupPath, true);
+
+    return this.requestRestore(backupName);
   }
 
   async listBackups() {

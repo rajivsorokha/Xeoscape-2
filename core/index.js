@@ -10,8 +10,13 @@ const TransactionManager = require('./transaction-manager');
 const ReportGenerator = require('./report-generator');
 const StoreProfile = require('./store-profile');
 const EmailSettings = require('./email-settings');
+const AiSettings = require('./ai-settings');
 const Activation = require('./activation');
 const BackupManager = require('./backup-manager');
+const PurchaseOrderManager = require('./purchase-order-manager');
+const ExpenseManager = require('./expense-manager');
+const TallySettings = require('./tally-settings');
+const WhatsAppSettings = require('./whatsapp-settings');
 const { applyPendingRestoreIfAny } = require('./backup-manager');
 
 function createCore(dataDir = path.join(__dirname, '..', 'data', 'store')) {
@@ -23,12 +28,17 @@ function createCore(dataDir = path.join(__dirname, '..', 'data', 'store')) {
 
   const productManager = new ProductManager(dataDir);
   const inventoryManager = new InventoryManager(dataDir, productManager);
-  const transactionManager = new TransactionManager(dataDir, productManager, inventoryManager);
-  const reportGenerator = new ReportGenerator(transactionManager, productManager, inventoryManager);
   const storeProfile = new StoreProfile(dataDir);
+  const transactionManager = new TransactionManager(dataDir, productManager, inventoryManager, storeProfile);
+  const reportGenerator = new ReportGenerator(transactionManager, productManager, inventoryManager, dataDir);
   const emailSettings = new EmailSettings(dataDir);
+  const aiSettings = new AiSettings(dataDir);
   const activation = new Activation(dataDir);
   const backupManager = new BackupManager(dataDir);
+  const purchaseOrderManager = new PurchaseOrderManager(dataDir, inventoryManager, productManager);
+  const expenseManager = new ExpenseManager(dataDir, storeConfig);
+  const tallySettings = new TallySettings(dataDir);
+  const whatsappSettings = new WhatsAppSettings(dataDir);
 
   return {
     storeConfig,
@@ -38,8 +48,13 @@ function createCore(dataDir = path.join(__dirname, '..', 'data', 'store')) {
     reportGenerator,
     storeProfile,
     emailSettings,
+    aiSettings,
     activation,
-    backupManager
+    backupManager,
+    purchaseOrderManager,
+    expenseManager,
+    tallySettings,
+    whatsappSettings
   };
 }
 

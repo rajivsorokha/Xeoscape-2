@@ -25,6 +25,34 @@ const COST_FIELD = {
   required: false
 };
 
+// Also cross-cutting (not store-type-specific), appended alongside
+// COST_FIELD -- used by the Low Stock report, Purchase Orders, and the
+// Stock on Hand report's vendor filter (see core/inventory-manager.js,
+// core/purchase-order-manager.js, core/report-generator.js#stockOnHand).
+// A product's `minStock` (already store-type-specific for some types)
+// remains supported as a fallback when reorderPoint isn't set, so
+// existing data/tests keep working unchanged.
+const VENDOR_FIELD = {
+  key: 'vendor',
+  label: 'Vendor',
+  type: 'text',
+  required: false
+};
+
+const REORDER_POINT_FIELD = {
+  key: 'reorderPoint',
+  label: 'Reorder Point',
+  type: 'number',
+  required: false
+};
+
+const REORDER_QTY_FIELD = {
+  key: 'reorderQty',
+  label: 'Reorder Quantity',
+  type: 'number',
+  required: false
+};
+
 function loadJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
@@ -94,11 +122,12 @@ class StoreConfig {
     const def = this.storeTypes[storeTypeId];
     if (!def) throw new Error(`Unknown store type: ${storeTypeId}`);
     const fields = this.productFieldSets[def.productFieldSetId] || [];
-    // Cost price is cross-cutting (not store-type-specific), optional
-    // everywhere, and only used for margin analysis in reporting -- so
-    // it's appended here once instead of duplicated in every store
-    // type's entry in product-fields.json.
-    return [...fields, COST_FIELD];
+    // Cost price, vendor, and reorder point/quantity are cross-cutting
+    // (not store-type-specific), optional everywhere, and only used by
+    // reporting/purchasing features -- so they're appended here once
+    // instead of duplicated in every store type's entry in
+    // product-fields.json.
+    return [...fields, COST_FIELD, VENDOR_FIELD, REORDER_POINT_FIELD, REORDER_QTY_FIELD];
   }
 
   getRolePermissions(role) {

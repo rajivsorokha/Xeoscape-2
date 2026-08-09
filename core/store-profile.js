@@ -17,7 +17,27 @@ const DEFAULT_PROFILE = {
   taxPercentage: 18, // standard GST rate
   chargeTax: true,
   quickBilling: false,
-  receiptFooter: 'Thank you for your business!'
+  receiptFooter: 'Thank you for your business!',
+  // URL of an uploaded logo (e.g. /uploads/169...-ab12cd.png), shown on
+  // receipts/branding. Uploaded via the same /api/uploads/image
+  // endpoint (multer, 2MB cap, jpeg/png/webp only) the product form's
+  // Picture field already uses -- see
+  // assets/js/modules/settings/store-profile.js.
+  logoUrl: '',
+  // How this install is deployed: a single till with everything local
+  // ('standalone'), a till that connects to a separate Network POS
+  // Server ('networkTerminal'), or the machine acting as that server
+  // for other tills to connect to ('networkServer'). Only the setting
+  // itself is captured here -- see the note in
+  // assets/js/modules/settings/store-profile.js for what's actually
+  // wired up today vs. reserved for a future multi-till sync feature.
+  applicationType: 'standalone',
+  networkServerAddress: '', // used when applicationType === 'networkTerminal'
+  networkServerPort: 4000, // used when applicationType === 'networkServer'
+  // Minutes of no mouse/keyboard/touch activity before the app locks
+  // and requires the current user's password to resume (see
+  // assets/js/core/idle-lock.js). 0 disables the lock entirely.
+  idleLockMinutes: 5
 };
 
 class StoreProfile {

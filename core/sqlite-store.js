@@ -117,7 +117,14 @@ class SqliteStore {
    */
   async _migrateLegacyIfEmpty() {
     const countRow = this.db.prepare(`SELECT COUNT(*) AS n FROM "${this.collectionName}"`).get();
-    if (countRow.n > 0) return;
+    if (countRow.n > 0) {
+      // Already migrated in a previous run -- any leftover legacy
+      // source file is now pure dead weight (never read again, but
+      // still copied into every backup until removed). Safe to delete
+      // now that the data is confirmed to already be in store.sqlite.
+      this._cleanupLegacyFiles();
+      return;
+    }
 
     const nedbPath = path.join(this.dataDir, `${this.collectionName}.nedb`);
     const jsonPath = path.join(this.dataDir, `${this.collectionName}.json`);
@@ -135,7 +142,13 @@ class SqliteStore {
       }
     }
 
-    if (!legacyRecords || legacyRecords.length === 0) return;
+    if (!legacyRecords || legacyRecords.length === 0) {
+      // Nothing to migrate (e.g. a fresh install's placeholder empty
+      // array), but the file itself is still dead weight -- clean it
+      // up rather than leaving an empty, pointless file behind.
+      this._cleanupLegacyFiles();
+      return;
+    }
 
     const insert = this.db.prepare(`INSERT INTO "${this.collectionName}" (id, doc) VALUES (?, ?)`);
     this.db.exec('BEGIN');
@@ -145,9 +158,34 @@ class SqliteStore {
       }
       this.db.exec('COMMIT');
       console.log(`Migrated ${legacyRecords.length} record(s) into "${this.collectionName}" (SQLite).`);
+      this._cleanupLegacyFiles();
     } catch (err) {
       this.db.exec('ROLLBACK');
       throw err;
+    }
+  }
+
+  /**
+   * Deletes this collection's legacy source file(s) (`<name>.nedb`,
+   * `<name>.json`) now that its data is confirmed to already be in
+   * store.sqlite. They're never read again after migration -- without
+   * this they'd sit in the data folder indefinitely and get needlessly
+   * copied into every backup (core/backup-manager.js also excludes
+   * them by name as a second line of defense, in case this ever can't
+   * run -- e.g. a locked file on Windows). Failures here are logged,
+   * not thrown: cleanup is a nice-to-have that should never block
+   * startup or data access.
+   */
+  _cleanupLegacyFiles() {
+    for (const ext of ['.nedb', '.json']) {
+      const legacyPath = path.join(this.dataDir, `${this.collectionName}${ext}`);
+      if (!fs.existsSync(legacyPath)) continue;
+      try {
+        fs.unlinkSync(legacyPath);
+        console.log(`Removed legacy file "${this.collectionName}${ext}" (already migrated into store.sqlite).`);
+      } catch (err) {
+        console.warn(`Could not remove legacy file "${this.collectionName}${ext}": ${err.message}`);
+      }
     }
   }
 
