@@ -8,6 +8,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { randomUUID } = require('crypto');
 const SqliteStore = require('../core/sqlite-store');
+const { requirePermission } = require('./auth-middleware');
 
 const PERMISSION_KEYS = ['perm_products', 'perm_categories', 'perm_transactions', 'perm_users', 'perm_settings'];
 
@@ -61,7 +62,7 @@ function buildUsersRouter({ dataDir, storeConfig }) {
     res.json(users);
   });
 
-  router.post('/', async (req, res) => {
+  router.post('/', requirePermission('perm_users'), async (req, res) => {
     const { username, password, role = 'cashier', displayName = '', permissions } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: 'username and password are required' });
@@ -86,11 +87,31 @@ function buildUsersRouter({ dataDir, storeConfig }) {
   });
 
   router.put('/:id', async (req, res) => {
+    const isSelf = req.currentUser && req.currentUser.id === req.params.id;
+    const hasUsersPermission = req.currentUser && (req.currentUser.role === 'admin' || req.currentUser.permissions?.perm_users);
+
+    // Anyone can edit their own basic account info (display name,
+    // username, password) -- that's ordinary self-service, not an
+    // admin action. Editing someone ELSE's account, or changing
+    // role/permissions (even your own), requires perm_users --
+    // otherwise a cashier could edit "themselves" to grant admin
+    // rights.
+    if (!isSelf && !hasUsersPermission) {
+      return res.status(403).json({ error: 'You do not have permission to do this. Ask an administrator.' });
+    }
+
     const { displayName, role, permissions, username, password } = req.body;
     const patch = {};
     if (displayName !== undefined) patch.displayName = displayName;
-    if (role !== undefined) patch.role = role;
-    if (permissions !== undefined) patch.permissions = normalizePermissions(permissions);
+
+    if (role !== undefined) {
+      if (!hasUsersPermission) return res.status(403).json({ error: 'Only an administrator can change roles.' });
+      patch.role = role;
+    }
+    if (permissions !== undefined) {
+      if (!hasUsersPermission) return res.status(403).json({ error: 'Only an administrator can change permissions.' });
+      patch.permissions = normalizePermissions(permissions);
+    }
 
     if (username !== undefined && username !== '') {
       const existing = (await db.readAll()).find((u) => u.username === username && u.id !== req.params.id);
@@ -120,7 +141,7 @@ function buildUsersRouter({ dataDir, storeConfig }) {
     res.json({ ...safeUser, rolePermissions: storeConfig.getRolePermissions(user.role) });
   });
 
-  router.delete('/:id', async (req, res) => {
+  router.delete('/:id', requirePermission('perm_users'), async (req, res) => {
     const removed = await db.remove(req.params.id);
     if (!removed) return res.status(404).json({ error: 'User not found' });
     res.status(204).send();

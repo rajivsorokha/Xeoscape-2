@@ -4,6 +4,7 @@
 // handles line items, payment, and totals for any kind of retail store.
 
 const express = require('express');
+const { requirePermission } = require('./auth-middleware');
 
 function buildTransactionsRouter({ transactionManager, reportGenerator }) {
   const router = express.Router();
@@ -53,7 +54,7 @@ function buildTransactionsRouter({ transactionManager, reportGenerator }) {
   });
 
   // POST /api/transactions/:id/void
-  router.post('/:id/void', async (req, res) => {
+  router.post('/:id/void', requirePermission('perm_transactions'), async (req, res) => {
     try {
       const { reason } = req.body || {};
       const voided = await transactionManager.void(req.params.id, reason);
@@ -63,10 +64,32 @@ function buildTransactionsRouter({ transactionManager, reportGenerator }) {
     }
   });
 
+  // POST /api/transactions/:id/return  { items: [{productId, quantity}], reason? }
+  router.post('/:id/return', requirePermission('perm_transactions'), async (req, res) => {
+    try {
+      const { items, reason } = req.body || {};
+      const returnTxn = await transactionManager.returnItems(req.params.id, {
+        items,
+        reason,
+        cashierId: req.currentUser?.id || null
+      });
+      res.status(201).json(returnTxn);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   // GET /api/transactions/reports/summary
   router.get('/reports/summary', async (req, res) => {
     const { from, to } = req.query;
     res.json(await reportGenerator.salesSummary({ from, to }));
+  });
+
+  // GET /api/transactions/reports/outstanding-credit -- who currently
+  // owes money (B2B General Retail's Credit payment method). Not
+  // date-ranged -- see core/report-generator.js#outstandingCredit for why.
+  router.get('/reports/outstanding-credit', async (req, res) => {
+    res.json(await reportGenerator.outstandingCredit());
   });
 
   // GET /api/transactions/reports/top-products

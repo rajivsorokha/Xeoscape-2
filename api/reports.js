@@ -49,6 +49,20 @@ function buildReportsRouter({ reportGenerator, storeProfile, emailSettings }) {
     }
   });
 
+  // GET /api/reports/stock-on-hand?asOf=YYYY-MM-DD&vendor=...
+  // Cost and retail value of current (or historical, via `asOf`)
+  // inventory, optionally filtered to one vendor -- see
+  // core/report-generator.js#stockOnHand.
+  router.get('/stock-on-hand', async (req, res) => {
+    const { asOf, vendor } = req.query;
+    try {
+      const report = await reportGenerator.stockOnHand({ asOf: asOf || null, vendor: vendor || null });
+      res.json(report);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   // GET /api/reports/summary?range=today|2days|week|month
   router.get('/summary', async (req, res) => {
     const { range = 'today' } = req.query;

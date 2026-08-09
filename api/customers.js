@@ -36,6 +36,7 @@ function buildCustomersRouter({ dataDir }) {
       phone,
       email,
       loyaltyPoints: 0,
+      balance: 0, // amount owed to the store from partial/due payments -- see api/transactions.js checkout dueAmount handling
       createdAt: new Date().toISOString()
     });
     res.status(201).json(customer);
@@ -44,6 +45,29 @@ function buildCustomersRouter({ dataDir }) {
   router.put('/:id', async (req, res) => {
     const updated = await db.update(req.params.id, req.body);
     if (!updated) return res.status(404).json({ error: 'Customer not found' });
+    res.json(updated);
+  });
+
+  // POST /api/customers/:id/pay-balance -- records a payment against
+  // the customer's due balance (accrued from partial/due sales -- see
+  // core/transaction-manager.js#checkout). Floors at 0 rather than
+  // going negative; keeps a light payment history on the customer
+  // record itself rather than a whole separate table.
+  router.post('/:id/pay-balance', async (req, res) => {
+    const customer = await db.findById(req.params.id);
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+    const amount = Number(req.body?.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'amount must be a positive number.' });
+    }
+    const currentBalance = customer.balance || 0;
+    const applied = Math.min(amount, currentBalance);
+    const history = customer.duePayments || [];
+    history.push({ amount: applied, date: new Date().toISOString(), note: req.body?.note || '' });
+    const updated = await db.update(req.params.id, {
+      balance: Number((currentBalance - applied).toFixed(2)),
+      duePayments: history
+    });
     res.json(updated);
   });
 
