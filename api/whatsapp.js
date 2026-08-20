@@ -26,7 +26,7 @@ function buildWhatsAppRouter({ whatsappSettings, customersDb, storeConfig }) {
 
   function requireB2B(req, res, next) {
     if (storeConfig.currentStoreType !== 'b2bGeneralRetail') {
-      return res.status(400).json({ error: 'WhatsApp credit reminders are only available for B2B General Retail.' });
+      return res.status(400).json({ error: 'WhatsApp due/outstanding reminders are only available for B2B General Retail.' });
     }
     next();
   }
