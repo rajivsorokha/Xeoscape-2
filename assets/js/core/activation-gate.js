@@ -4,7 +4,9 @@
 // live dropdown (sourced from /api/settings/store-types, so it never
 // goes stale as new store types are added) and enters the matching
 // activation key. Entering a valid key both unlocks the app and sets
-// the active store type to match.
+// the active store type to match -- except a demo key, which isn't
+// tied to one store type, so it unlocks as whichever type is
+// currently selected in the dropdown (see core/activation.js#activate).
 
 import apiClient from '../shared/api-client.js';
 import { el } from '../shared/utils.js';
@@ -56,8 +58,12 @@ export function renderActivationGate(rootEl) {
       submitBtn.disabled = true;
       submitBtn.textContent = 'Activating...';
       try {
-        const result = await apiClient.post('/activation/activate', { activationKey: key });
-        if (result.storeType !== typeSelect.value) {
+        const result = await apiClient.post('/activation/activate', { activationKey: key, storeType: typeSelect.value });
+        // A demo key isn't tied to one store type -- it activates as
+        // whatever was selected, so there's nothing to reconcile. A
+        // real key's store type comes from the key itself, so check it
+        // still matches what was picked.
+        if (!result.isDemo && result.storeType !== typeSelect.value) {
           // The key is valid, but for a different store type -- undo the
           // activation rather than silently switching the selection out
           // from under the person.
@@ -90,6 +96,7 @@ export function renderActivationGate(rootEl) {
         typeDescEl,
         el('label', { class: 'gate-label' }, 'Activation Key'),
         keyInput,
+        el('p', { class: 'gate-hint' }, 'Just trying it out? A demo key works with any store type above.'),
         errorEl,
         submitBtn
       ])

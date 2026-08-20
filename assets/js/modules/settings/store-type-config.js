@@ -1,6 +1,11 @@
 // assets/js/modules/settings/store-type-config.js
 // Lets an admin switch the active store type, which requires entering
-// the activation key for the selected type.
+// the activation key for the selected type (or a demo key, which
+// works for any type -- see core/activation.js#activate). Also shows
+// this install's license info (which key type, this device's label,
+// and when it was activated) since that's the audit trail the store
+// owner has for "one computer per key" -- see the note at the top of
+// core/activation.js on why that's enforced locally, not centrally.
 
 import apiClient from '../../shared/api-client.js';
 import { el } from '../../shared/utils.js';
@@ -25,6 +30,9 @@ export async function mountStoreTypeConfig(container, { onChanged } = {}) {
   ]);
   container.appendChild(keyInputContainer);
 
+  const licenseInfoEl = el('p', { class: 'settings-hint' }, '');
+  container.appendChild(licenseInfoEl);
+
   const [storeTypes, currentSettings, activationStatus] = await Promise.all([
     apiClient.get('/settings/store-types'),
     apiClient.get('/settings'),
@@ -32,6 +40,17 @@ export async function mountStoreTypeConfig(container, { onChanged } = {}) {
   ]);
 
   const activeStoreTypeId = activationStatus.storeType || currentSettings.storeType.id;
+
+  function renderLicenseInfo(status) {
+    if (!status.activated) {
+      licenseInfoEl.textContent = '';
+      return;
+    }
+    const when = status.activatedAt ? new Date(status.activatedAt).toLocaleString() : 'unknown date';
+    const kind = status.isDemo ? 'Demo key' : 'Licensed';
+    licenseInfoEl.textContent = `${kind} \u2022 This computer: ${status.deviceLabel || 'unknown device'} \u2022 Activated ${when}`;
+  }
+  renderLicenseInfo(activationStatus);
 
   storeTypes.forEach((st) => {
     const isActive = st.id === activeStoreTypeId;
@@ -71,8 +90,13 @@ export async function mountStoreTypeConfig(container, { onChanged } = {}) {
       return;
     }
     try {
-      await apiClient.post('/activation/activate', { activationKey: key });
-      notification.success('Store type updated. Product fields will now reflect this store type.');
+      const result = await apiClient.post('/activation/activate', { activationKey: key, storeType: selectedType });
+      notification.success(
+        result.isDemo
+          ? 'Demo key applied. Product fields will now reflect this store type.'
+          : 'Store type updated. Product fields will now reflect this store type.'
+      );
+      renderLicenseInfo(await apiClient.get('/activation/status'));
       await onChanged?.();
     } catch (err) {
       notification.error(err.message);

@@ -10,6 +10,7 @@ import { mountStoreTypeConfig } from './store-type-config.js';
 import { mountReportGenerator } from './report-generator-settings.js';
 import { mountProductPerformance } from './product-performance.js';
 import { mountLowStockReport } from './low-stock-report.js';
+import { mountDueOutstandingReport } from './due-outstanding-report.js';
 import { mountSupplierList } from '../suppliers/supplier-list.js';
 import { mountExpenses } from './expenses.js';
 import { mountTallyIntegration } from './tally-integration.js';
@@ -33,6 +34,7 @@ const SECTIONS = [
   { id: 'report-generator', label: 'Report Generator', mount: mountReportGenerator },
   { id: 'product-performance', label: 'Product Performance (ABC)', mount: mountProductPerformance },
   { id: 'low-stock', label: 'Low Stock', mount: mountLowStockReport },
+  { id: 'due-outstanding', label: 'Due / Outstanding', mount: mountDueOutstandingReport },
   { id: 'suppliers', label: 'Suppliers', mount: mountSupplierList },
   { id: 'expenses', label: 'Expenses', mount: mountExpenses },
   { id: 'tally', label: 'Tally Integration', mount: mountTallyIntegration },

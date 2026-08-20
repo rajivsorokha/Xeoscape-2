@@ -39,12 +39,14 @@ export async function mountTransactionList(container) {
     el('div', { class: 'stat-card stat-card-info' }, [el('div', { class: 'stat-label' }, 'ITEMS SOLD'), itemsValueEl]),
     el('div', { class: 'stat-card stat-card-green' }, [el('div', { class: 'stat-label' }, 'PRODUCTS'), productsValueEl])
   ];
-  // Outstanding Credit only means anything for B2B General Retail
-  // (the only store type Credit payment is available for -- see
+  // Outstanding Due only means anything for B2B General Retail (the
+  // only store type Due/Credit payment is available for -- see
   // core/transaction-manager.js#checkout) -- omitted entirely
-  // elsewhere rather than always showing a meaningless ₹0.
+  // elsewhere rather than always showing a meaningless ₹0. Labelled
+  // "Due" rather than "Credit" so it isn't mistaken for a credit-card
+  // figure.
   if (settingsStore.isB2B()) {
-    statCards.push(el('div', { class: 'stat-card stat-card-warning' }, [el('div', { class: 'stat-label' }, 'OUTSTANDING CREDIT'), creditValueEl]));
+    statCards.push(el('div', { class: 'stat-card stat-card-warning' }, [el('div', { class: 'stat-label' }, 'OUTSTANDING DUE'), creditValueEl]));
   }
   container.appendChild(el('div', { class: 'stats-row' }, statCards));
 
@@ -158,7 +160,7 @@ export async function mountTransactionList(container) {
             key: 'paymentMethod',
             label: 'Method',
             render: (t) => (t.paymentMethod === 'credit'
-              ? el('span', { class: 'po-status-badge po-status-partially_received' }, 'Credit')
+              ? el('span', { class: 'po-status-badge po-status-partially_received' }, 'Due')
               : (t.paymentMethod || '\u2014'))
           },
           { key: 'till', label: 'Till', render: () => '1' },

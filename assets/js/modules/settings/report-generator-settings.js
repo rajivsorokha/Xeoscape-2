@@ -79,7 +79,7 @@ export async function mountReportGenerator(container) {
         el('div', { class: 'report-summary-cell' }, [el('div', { class: 'report-summary-label' }, 'Avg. Sale'), el('div', { class: 'report-summary-value' }, formatMoney(report.summary.averageTransactionValue))]),
         el('div', { class: 'report-summary-cell' }, [el('div', { class: 'report-summary-label' }, 'Collected'), el('div', { class: 'report-summary-value' }, formatMoney(report.summary.totalPaid))]),
         el('div', { class: 'report-summary-cell' }, [
-          el('div', { class: 'report-summary-label' }, 'Credit Extended'),
+          el('div', { class: 'report-summary-label' }, 'Due / Outstanding'),
           el('div', { class: 'report-summary-value', style: report.summary.totalDue > 0 ? 'color:var(--color-danger);' : '' }, formatMoney(report.summary.totalDue))
         ])
       ]));
