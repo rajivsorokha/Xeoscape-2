@@ -54,10 +54,52 @@ describe('Activation', () => {
     expect(await activation.getStatus()).toEqual({ activated: false, storeType: null });
   });
 
-  test('every store type has a corresponding activation key', () => {
+  test('every store type has a pool of activation keys', () => {
     const storeTypes = Object.keys(storeConfig.storeTypes);
     storeTypes.forEach((id) => {
-      expect(activation.keys[id]).toBeTruthy();
+      expect(Array.isArray(activation.keys[id])).toBe(true);
+      expect(activation.keys[id].length).toBeGreaterThan(0);
     });
+  });
+
+  test('activation records this device and is not marked demo for a real key', async () => {
+    const result = await activation.activate('PHARM-RX7Q-4M2P-2026');
+    expect(result.isDemo).toBe(false);
+    const status = await activation.getStatus();
+    expect(status.isDemo).toBe(false);
+    expect(status.deviceId).toEqual(expect.any(String));
+    expect(status.deviceLabel).toEqual(expect.any(String));
+  });
+
+  test('the same device ID persists across a new Activation instance (same dataDir)', async () => {
+    await activation.activate('PHARM-RX7Q-4M2P-2026');
+    const { deviceId } = await activation.getStatus();
+
+    const reloaded = new Activation(dataDir);
+    await reloaded.deactivate();
+    await reloaded.activate('GROCR-SUPM-9T5W-2026');
+    const { deviceId: deviceIdAfterReactivation } = await reloaded.getStatus();
+
+    expect(deviceIdAfterReactivation).toBe(deviceId);
+  });
+
+  test('a demo key activates as whichever store type is requested', async () => {
+    const demoKey = activation.keys.demo[0];
+    const result = await activation.activate(demoKey, 'pharmacy');
+    expect(result.isDemo).toBe(true);
+    expect(result.storeType).toBe('pharmacy');
+    expect(storeConfig.currentStoreType).toBe('pharmacy');
+  });
+
+  test('a demo key rejects an unknown requested store type', async () => {
+    const demoKey = activation.keys.demo[0];
+    await expect(activation.activate(demoKey, 'not-a-real-store-type')).rejects.toThrow(
+      'Select a store type to try the demo as.'
+    );
+  });
+
+  test('a demo key requires a requested store type', async () => {
+    const demoKey = activation.keys.demo[0];
+    await expect(activation.activate(demoKey)).rejects.toThrow('Select a store type to try the demo as.');
   });
 });
