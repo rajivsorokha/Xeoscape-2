@@ -14,8 +14,8 @@ function buildActivationRouter({ activation }) {
 
   router.post('/activate', async (req, res) => {
     try {
-      const { activationKey, storeType } = req.body;
-      const result = await activation.activate(activationKey, storeType);
+      const { activationKey } = req.body;
+      const result = await activation.activate(activationKey);
       res.json(result);
     } catch (err) {
       res.status(400).json({ error: err.message });
