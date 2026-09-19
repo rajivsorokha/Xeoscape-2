@@ -31,31 +31,26 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
   // charges/stores (see core/transaction-manager.js#checkout).
   const total = () => Number((afterDiscount() + taxAmount()).toFixed(2));
 
-  // --- Method tabs (Cash / Card / Due) ---
-  // "Due" (stored internally as paymentMethod 'credit') is a B2B
-  // General Retail feature only (see
+  // --- Method tabs (Cash / Card / Credit) ---
+  // Credit is a B2B General Retail feature only (see
   // core/transaction-manager.js#checkout, which enforces this
   // server-side too -- this isn't just a hidden button). Cash and
-  // Card always require the full amount; Due is the one place a
+  // Card always require the full amount; Credit is the one place a
   // shortfall is expected and goes onto the customer's account balance.
-  // Labelled "Due" rather than "Credit" in the UI so it isn't
-  // mistaken for a credit-card payment -- in local usage (e.g.
-  // Manipur) "credit" means goods taken now and paid for later, not a
-  // card network.
   const cashTab = el('button', { class: 'payment-tab active', type: 'button' }, 'Cash');
   const cardTab = el('button', { class: 'payment-tab', type: 'button' }, 'Card');
-  const creditTab = settingsStore.isB2B() ? el('button', { class: 'payment-tab', type: 'button' }, 'Due') : null;
+  const creditTab = settingsStore.isB2B() ? el('button', { class: 'payment-tab', type: 'button' }, 'Credit') : null;
   const tabs = el('div', { class: 'payment-tabs' }, creditTab ? [cashTab, cardTab, creditTab] : [cashTab, cardTab]);
 
   // --- Card Info field (only shown for Card payments) ---
   const cardInfoInput = el('input', { type: 'text', placeholder: 'Card reference / auth code', onInput: (e) => { cardInfo = e.target.value; } });
   const cardInfoRow = el('div', { class: 'payment-field-row', style: 'display:none;' }, [el('label', {}, 'Card Info'), cardInfoInput]);
 
-  // --- Due hint (only shown for Due payments) ---
+  // --- Credit hint (only shown for Credit payments) ---
   const creditHint = el('div', { class: 'settings-hint', style: 'display:none;' },
     customerId
-      ? 'Enter what\u2019s being collected now (0 is fine if it\u2019s all going on due/outstanding) \u2014 the remainder goes onto this customer\u2019s account balance.'
-      : '\u26A0 Select a customer above first \u2014 a due/outstanding amount needs an account to bill it to.'
+      ? 'Enter what\u2019s being collected now (0 is fine if paying in full later) \u2014 the remainder is tracked as Due on this customer\u2019s account.'
+      : '\u26A0 Select a customer above first \u2014 the amount due needs an account to bill it to.'
   );
 
   function selectMethod(method) {
@@ -114,17 +109,19 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
       changeBar.textContent = 'Card payment \u2014 exact amount charged';
       changeBar.classList.remove('insufficient');
     } else if (paymentMethod === 'credit') {
-      // Due is the dedicated path for a shortfall -- see
-      // core/transaction-manager.js#checkout's dueAmount handling
-      // (B2B General Retail only, enforced server-side).
+      // Credit is the payment method (goods now, pay later -- not a
+      // credit card); the amount it leaves unpaid is tracked and
+      // reported as "Due"/"Outstanding" throughout the rest of the
+      // app (see core/transaction-manager.js#checkout's dueAmount
+      // handling, B2B General Retail only, enforced server-side).
       if (!customerId) {
-        changeBar.textContent = 'Select a customer to bill the due amount to.';
+        changeBar.textContent = 'Select a customer to bill this to.';
         changeBar.classList.add('insufficient');
       } else if (change < 0) {
-        changeBar.textContent = `To Due Account: ${formatMoney(Math.abs(change), symbol)}`;
+        changeBar.textContent = `Due: ${formatMoney(Math.abs(change), symbol)} (added to customer\u2019s account)`;
         changeBar.classList.remove('insufficient');
       } else {
-        changeBar.textContent = `Paid in full \u2014 nothing added to the due account. Change: ${formatMoney(change, symbol)}`;
+        changeBar.textContent = `Paid in full \u2014 nothing due. Change: ${formatMoney(change, symbol)}`;
         changeBar.classList.remove('insufficient');
       }
     } else if (change < 0) {
@@ -184,7 +181,7 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
   async function confirmPayment() {
     const tendered = Number(amountTendered) || 0;
     if (paymentMethod === 'cash' && tendered < total()) {
-      notification.error('Cash payment must cover the full amount. Use Due if you want to leave a balance outstanding.');
+      notification.error('Cash payment must cover the full amount. Use Credit if you want to leave a balance due.');
       return;
     }
     if (paymentMethod === 'card' && !cardInfo.trim()) {
@@ -192,7 +189,7 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
       return;
     }
     if (paymentMethod === 'credit' && !customerId) {
-      notification.error('Select a customer to bill the due amount to.');
+      notification.error('Select a customer to bill the credit to.');
       return;
     }
     try {

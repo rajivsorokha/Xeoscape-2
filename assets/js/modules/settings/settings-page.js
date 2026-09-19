@@ -10,12 +10,12 @@ import { mountStoreTypeConfig } from './store-type-config.js';
 import { mountReportGenerator } from './report-generator-settings.js';
 import { mountProductPerformance } from './product-performance.js';
 import { mountLowStockReport } from './low-stock-report.js';
-import { mountDueOutstandingReport } from './due-outstanding-report.js';
 import { mountSupplierList } from '../suppliers/supplier-list.js';
 import { mountExpenses } from './expenses.js';
 import { mountTallyIntegration } from './tally-integration.js';
 import { mountQuickScanAdd } from '../products/quick-scan-add.js';
 import { mountWhatsAppReminders } from './whatsapp-reminders.js';
+import { mountDueOutstandingReport } from './due-outstanding-report.js';
 import { mountPurchaseOrders } from './purchase-orders.js';
 import { mountStockOnHand } from './stock-on-hand.js';
 import { mountEmailSettings } from './email-settings-panel.js';
@@ -31,10 +31,10 @@ const SECTIONS = [
   { id: 'bulk-import', label: 'Bulk Product Import', mount: mountBulkImport },
   { id: 'quick-scan-add', label: 'Quick Scan Add', mount: mountQuickScanAdd },
   { id: 'whatsapp-reminders', label: 'WhatsApp Reminders', mount: mountWhatsAppReminders },
+  { id: 'due-outstanding-report', label: 'Due / Outstanding Report', mount: mountDueOutstandingReport },
   { id: 'report-generator', label: 'Report Generator', mount: mountReportGenerator },
   { id: 'product-performance', label: 'Product Performance (ABC)', mount: mountProductPerformance },
   { id: 'low-stock', label: 'Low Stock', mount: mountLowStockReport },
-  { id: 'due-outstanding', label: 'Due / Outstanding', mount: mountDueOutstandingReport },
   { id: 'suppliers', label: 'Suppliers', mount: mountSupplierList },
   { id: 'expenses', label: 'Expenses', mount: mountExpenses },
   { id: 'tally', label: 'Tally Integration', mount: mountTallyIntegration },
