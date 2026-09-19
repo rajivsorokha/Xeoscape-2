@@ -1,0 +1,614 @@
+diff --git a/api/tables.js b/api/tables.js
+new file mode 100644
+index 0000000..83c9487
+--- /dev/null
++++ b/api/tables.js
+@@ -0,0 +1,74 @@
++// api/tables.js
++// Restaurant/Cafe table management -- lets the store owner define
++// their own set of tables (a number/name + seat count) instead of the
++// old hardcoded 2/3/4/6/8-Seater buttons in the cart. Modeled closely
++// on api/categories.js (same SqliteStore-per-collection pattern, same
++// requirePermission gate), scoped by store type isn't needed here
++// since tables are only ever shown/edited for the 'restaurant' store
++// type in the UI, but records are plain and untagged for simplicity.
++
++const express = require('express');
++const { randomUUID } = require('crypto');
++const SqliteStore = require('../core/sqlite-store');
++const { requirePermission } = require('./auth-middleware');
++
++function buildTablesRouter({ dataDir }) {
++  const router = express.Router();
++  const db = new SqliteStore(dataDir, 'tables');
++
++  // GET /api/tables -- sorted by table number/name for a stable,
++  // predictable order in both the Settings list and the cart's table
++  // picker.
++  router.get('/', async (req, res) => {
++    const tables = await db.readAll();
++    tables.sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
++    res.json(tables);
++  });
++
++  router.post('/', requirePermission('perm_settings'), async (req, res) => {
++    const { number, seats } = req.body;
++    if (!number || !String(number).trim()) {
++      return res.status(400).json({ error: 'Table number is required.' });
++    }
++    const seatCount = Number(seats);
++    if (!Number.isFinite(seatCount) || seatCount <= 0) {
++      return res.status(400).json({ error: 'Seats must be a positive number.' });
++    }
++    const table = await db.insert({
++      id: randomUUID(),
++      number: String(number).trim(),
++      seats: seatCount,
++      createdAt: new Date().toISOString()
++    });
++    res.status(201).json(table);
++  });
++
++  router.put('/:id', requirePermission('perm_settings'), async (req, res) => {
++    const { number, seats } = req.body;
++    const patch = {};
++    if (number !== undefined) {
++      if (!String(number).trim()) return res.status(400).json({ error: 'Table number is required.' });
++      patch.number = String(number).trim();
++    }
++    if (seats !== undefined) {
++      const seatCount = Number(seats);
++      if (!Number.isFinite(seatCount) || seatCount <= 0) {
++        return res.status(400).json({ error: 'Seats must be a positive number.' });
++      }
++      patch.seats = seatCount;
++    }
++    const updated = await db.update(req.params.id, patch);
++    if (!updated) return res.status(404).json({ error: 'Table not found' });
++    res.json(updated);
++  });
++
++  router.delete('/:id', requirePermission('perm_settings'), async (req, res) => {
++    const removed = await db.remove(req.params.id);
++    if (!removed) return res.status(404).json({ error: 'Table not found' });
++    res.status(204).send();
++  });
++
++  return router;
++}
++
++module.exports = buildTablesRouter;
+diff --git a/assets/css/components.css b/assets/css/components.css
+index 9e319c8..243ffc3 100644
+--- a/assets/css/components.css
++++ b/assets/css/components.css
+@@ -86,6 +86,11 @@
+ 
+ .form-field { margin-bottom: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+ .form-field label { font-size: 0.85rem; color: var(--color-text-muted); font-weight: 600; }
++.chip-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
++.chip { display: inline-flex; align-items: center; gap: 0.3rem; background: var(--color-bg-subtle, #f0f0f0); border-radius: 14px; padding: 0.2rem 0.5rem 0.2rem 0.65rem; font-size: 0.82rem; }
++.chip-remove { border: none; background: transparent; cursor: pointer; font-size: 0.9rem; line-height: 1; color: var(--color-text-muted); padding: 0; }
++.chip-remove:hover { color: var(--color-danger, #c0392b); }
++.cart-seat-empty-hint { font-size: 0.78rem; color: var(--color-text-muted); font-style: italic; }
+ .field-error { color: var(--color-danger); font-size: 0.8rem; }
+ 
+ .app-table { width: 100%; border-collapse: collapse; background: var(--color-surface); }
+diff --git a/assets/js/modules/cart/cart-ui.js b/assets/js/modules/cart/cart-ui.js
+index 7aff47e..6dd9015 100644
+--- a/assets/js/modules/cart/cart-ui.js
++++ b/assets/js/modules/cart/cart-ui.js
+@@ -16,37 +16,51 @@ import notification from '../../ui/notification.js';
+ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
+   let discount = 0;
+   let selectedCustomerId = '';
+-  let selectedSeats = null;
+-
+-  // --- Seat assignment (Restaurant / Cafe only) ---
+-  const SEAT_SIZES = [2, 3, 4, 6, 8];
+-  const seatButtons = SEAT_SIZES.map((n) => {
+-    const btn = el('button', {
+-      type: 'button',
+-      class: 'btn btn-sm btn-secondary seat-btn',
+-      onClick: () => {
+-        selectedSeats = selectedSeats === n ? null : n;
+-        updateSeatButtons();
+-      }
+-    }, `${n}-Seater`);
+-    btn.dataset.seats = String(n);
+-    return btn;
+-  });
++  // Holds the selected table's `number` (a plain string, e.g. "1" or
++  // "Patio-3") -- the value stamped onto the order as `seatAssignment`.
++  let selectedTable = null;
++
++  // --- Table assignment (Restaurant / Cafe only) ---
++  // Buttons are built from the owner's own list of tables (Settings ->
++  // Tables, see assets/js/modules/settings/table-settings.js), not a
++  // fixed set of seat-count sizes.
++  let tableButtons = [];
++  const seatRow = el('div', { class: 'cart-seat-row', style: 'display:none;' }, [
++    el('span', { class: 'cart-seat-label' }, 'Table:')
++  ]);
+   function updateSeatButtons() {
+-    seatButtons.forEach((btn) => {
+-      btn.classList.toggle('active', Number(btn.dataset.seats) === selectedSeats);
++    tableButtons.forEach((btn) => {
++      btn.classList.toggle('active', btn.dataset.tableNumber === selectedTable);
+     });
+   }
+-  const seatRow = el('div', { class: 'cart-seat-row', style: 'display:none;' }, [
+-    el('span', { class: 'cart-seat-label' }, 'Table:'),
+-    ...seatButtons
+-  ]);
++  function renderTableButtons(tables) {
++    tableButtons = tables.map((t) => {
++      const btn = el('button', {
++        type: 'button',
++        class: 'btn btn-sm btn-secondary seat-btn',
++        onClick: () => {
++          selectedTable = selectedTable === t.number ? null : t.number;
++          updateSeatButtons();
++        }
++      }, `${t.number} (${t.seats}-seater)`);
++      btn.dataset.tableNumber = t.number;
++      return btn;
++    });
++    // Keep the "Table:" label, drop any previously-rendered buttons.
++    seatRow.innerHTML = '';
++    seatRow.appendChild(el('span', { class: 'cart-seat-label' }, 'Table:'));
++    if (tableButtons.length === 0) {
++      seatRow.appendChild(el('span', { class: 'cart-seat-empty-hint' }, 'No tables set up yet -- add some under Settings \u2192 Tables.'));
++    } else {
++      tableButtons.forEach((btn) => seatRow.appendChild(btn));
++    }
++  }
+   // Only shown when the active store type is Restaurant / Cafe.
+   apiClient.get('/settings')
+     .then((settings) => {
+-      if (settings.storeType?.id === 'restaurant') {
+-        seatRow.style.display = 'flex';
+-      }
++      if (settings.storeType?.id !== 'restaurant') return;
++      seatRow.style.display = 'flex';
++      return apiClient.get('/tables').then(renderTableButtons);
+     })
+     .catch(() => {});
+ 
+@@ -112,7 +126,7 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
+ 
+   // --- Action row: Print / Cancel / Hold / Pay ---
+   const printBtn = el('button', { class: 'btn btn-info btn-icon', title: 'Print preview', onClick: () => onPrintPreview?.({ lines: cartManager.getLines(), discount, total: computeGross() }) }, '\u{1F5A8}');
+-  const cancelBtn = el('button', { class: 'btn btn-danger', onClick: () => { cartManager.clear(); discountInput.value = ''; discount = 0; selectedSeats = null; updateSeatButtons(); } }, [el('span', {}, '\u2298 Cancel')]);
++  const cancelBtn = el('button', { class: 'btn btn-danger', onClick: () => { cartManager.clear(); discountInput.value = ''; discount = 0; selectedTable = null; updateSeatButtons(); } }, [el('span', {}, '\u2298 Cancel')]);
+   const holdBtn = el('button', { class: 'btn btn-info', onClick: async () => {
+     if (cartManager.getLines().length === 0) { notification.error('Cart is empty.'); return; }
+     const ref = await promptModal('Reference for this held order:', '');
+@@ -122,20 +136,20 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
+         items: cartManager.toCheckoutItems(),
+         discount,
+         customerId: selectedCustomerId || null,
+-        seatAssignment: selectedSeats ? `${selectedSeats}-Seater` : null,
++        seatAssignment: selectedTable,
+         ref
+       });
+       cartManager.clear();
+       discountInput.value = '';
+       discount = 0;
+-      selectedSeats = null;
++      selectedTable = null;
+       updateSeatButtons();
+       notification.success('Order held. Find it under Open Tabs.');
+     } catch (err) {
+       notification.error(err.message);
+     }
+   } }, [el('span', {}, '\u270B Hold')]);
+-  const payBtn = el('button', { class: 'btn btn-success', onClick: () => onPay?.({ discount, customerId: selectedCustomerId, seatAssignment: selectedSeats ? `${selectedSeats}-Seater` : null }) }, [el('span', {}, '\u{1F4B0} Pay')]);
++  const payBtn = el('button', { class: 'btn btn-success', onClick: () => onPay?.({ discount, customerId: selectedCustomerId, seatAssignment: selectedTable }) }, [el('span', {}, '\u{1F4B0} Pay')]);
+ 
+   const whatsappBtn = el('button', { class: 'btn btn-whatsapp', title: 'Send bill to WhatsApp', onClick: async () => {
+     if (cartManager.getLines().length === 0) { notification.error('Cart is empty.'); return; }
+@@ -210,8 +224,8 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
+     // successful payment (cartManager.clear() inside payment.js) --
+     // catching it here too means the table selection always resets
+     // once an order is done, regardless of which path emptied it.
+-    if (lines.length === 0 && selectedSeats !== null) {
+-      selectedSeats = null;
++    if (lines.length === 0 && selectedTable !== null) {
++      selectedTable = null;
+       updateSeatButtons();
+     }
+     listEl.innerHTML = '';
+diff --git a/assets/js/modules/products/product-form.js b/assets/js/modules/products/product-form.js
+index ee0e564..c6e20de 100644
+--- a/assets/js/modules/products/product-form.js
++++ b/assets/js/modules/products/product-form.js
+@@ -35,6 +35,128 @@ async function uploadImage(file) {
+   return data.url;
+ }
+ 
++// Renders the `category` field as a dropdown of existing categories
++// (from the same Categories list the "\ud83d\udcca Categories" nav button
++// manages -- see api/categories.js) instead of a free-text box, with
++// an inline "+ New" to add one without leaving this form. The
++// underlying value stored on the product is still just the category's
++// name (a plain string), matching what core/product-manager.js has
++// always expected -- so this is purely a friendlier way to fill in a
++// field that already existed.
++function buildCategoryField(fieldDef, values, errorEl) {
++  const select = el('select', {
++    onChange: (e) => { values[fieldDef.key] = e.target.value; }
++  });
++
++  async function loadOptions() {
++    let categories = [];
++    try {
++      categories = await apiClient.get('/categories');
++    } catch (err) {
++      // Non-fatal -- falls back to just showing whatever value the
++      // product already had.
++    }
++    const current = values[fieldDef.key] || '';
++    select.innerHTML = '';
++    select.appendChild(el('option', { value: '' }, '-- Select Category --'));
++    categories.forEach((c) => select.appendChild(el('option', { value: c.name }, c.name)));
++    // A product's existing category might not be in the list (e.g. it
++    // was set before the category was renamed/deleted) -- keep it
++    // selectable so saving the form doesn't silently wipe it out.
++    if (current && !categories.some((c) => c.name === current)) {
++      select.appendChild(el('option', { value: current }, current));
++    }
++    select.value = current;
++  }
++
++  const newNameInput = el('input', {
++    type: 'text',
++    placeholder: 'New category name',
++    style: 'display:none;margin-top:0.3rem;'
++  });
++  const addBtn = el('button', {
++    type: 'button',
++    class: 'btn btn-sm btn-secondary',
++    onClick: async () => {
++      if (newNameInput.style.display === 'none') {
++        newNameInput.style.display = 'block';
++        newNameInput.focus();
++        return;
++      }
++      const name = newNameInput.value.trim();
++      if (!name) return;
++      try {
++        await apiClient.post('/categories', { name });
++      } catch (err) {
++        notification.error(err.message);
++        return;
++      }
++      newNameInput.value = '';
++      newNameInput.style.display = 'none';
++      values[fieldDef.key] = name;
++      await loadOptions();
++    }
++  }, '+ New');
++
++  const fieldPromise = loadOptions();
++
++  const wrapper = el('div', { class: 'form-field' }, [
++    el('label', {}, `${fieldDef.label}${fieldDef.required ? ' *' : ''}`),
++    el('div', { style: 'display:flex;gap:0.4rem;align-items:center;' }, [select, addBtn]),
++    newNameInput,
++    errorEl
++  ]);
++  return { node: wrapper, ready: fieldPromise };
++}
++
++// Renders a `list`-type field (currently just Modifiers) as an
++// add/remove chip list instead of a plain text box, since the field
++// is meant to hold several short items (e.g. "Extra Cheese", "No
++// Onions"), not one string.
++function buildListField(fieldDef, values, errorEl) {
++  const items = Array.isArray(values[fieldDef.key]) ? [...values[fieldDef.key]] : [];
++  values[fieldDef.key] = items;
++
++  const chipsEl = el('div', { class: 'chip-list' });
++  function renderChips() {
++    chipsEl.innerHTML = '';
++    items.forEach((item, idx) => {
++      chipsEl.appendChild(el('span', { class: 'chip' }, [
++        item,
++        el('button', {
++          type: 'button',
++          class: 'chip-remove',
++          onClick: () => { items.splice(idx, 1); renderChips(); }
++        }, '\u00d7')
++      ]));
++    });
++  }
++  renderChips();
++
++  function addFromInput() {
++    const value = textInput.value.trim();
++    if (!value) return;
++    items.push(value);
++    textInput.value = '';
++    renderChips();
++  }
++  const textInput = el('input', {
++    type: 'text',
++    placeholder: 'e.g. Extra Cheese -- press Enter to add',
++    onKeydown: (e) => {
++      if (e.key === 'Enter') { e.preventDefault(); addFromInput(); }
++    }
++  });
++  const addBtn = el('button', { type: 'button', class: 'btn btn-sm btn-secondary', onClick: addFromInput }, 'Add');
++
++  return el('div', { class: 'form-field' }, [
++    el('label', {}, `${fieldDef.label}${fieldDef.required ? ' *' : ''}`),
++    chipsEl,
++    el('div', { style: 'display:flex;gap:0.4rem;' }, [textInput, addBtn]),
++    errorEl
++  ]);
++}
++
+ function buildPictureField(values) {
+   const preview = el('img', {
+     src: values.imageUrl || '',
+@@ -79,6 +201,16 @@ export async function openProductForm({ product = null, initialValues = null, on
+   const errorEls = {};
+ 
+   const fields = schema.fields.map((fieldDef) => {
++    const errorEl = el('div', { class: 'field-error' }, '');
++    errorEls[fieldDef.key] = errorEl;
++
++    if (fieldDef.key === 'category') {
++      return buildCategoryField(fieldDef, values, errorEl).node;
++    }
++    if (fieldDef.type === 'list') {
++      return buildListField(fieldDef, values, errorEl);
++    }
++
+     const isCheckbox = fieldDef.type === 'boolean';
+ 
+     const input = el('input', {
+@@ -95,9 +227,6 @@ export async function openProductForm({ product = null, initialValues = null, on
+       }
+     });
+ 
+-    const errorEl = el('div', { class: 'field-error' }, '');
+-    errorEls[fieldDef.key] = errorEl;
+-
+     // Checkboxes read more naturally with the label after the control.
+     const fieldChildren = isCheckbox
+       ? [el('label', {}, [input, ` ${fieldDef.label}`]), errorEl]
+diff --git a/assets/js/modules/settings/settings-page.js b/assets/js/modules/settings/settings-page.js
+index 63da52f..d6924e0 100644
+--- a/assets/js/modules/settings/settings-page.js
++++ b/assets/js/modules/settings/settings-page.js
+@@ -5,8 +5,10 @@
+ // a time.
+ 
+ import { el } from '../../shared/utils.js';
++import apiClient from '../../shared/api-client.js';
+ import { mountStoreProfile } from './store-profile.js';
+ import { mountStoreTypeConfig } from './store-type-config.js';
++import { mountTableSettings } from './table-settings.js';
+ import { mountReportGenerator } from './report-generator-settings.js';
+ import { mountProductPerformance } from './product-performance.js';
+ import { mountLowStockReport } from './low-stock-report.js';
+@@ -46,10 +48,25 @@ const SECTIONS = [
+ ];
+ 
+ export async function mountSettingsPage(container, { onStoreTypeChanged } = {}) {
+-  let activeId = SECTIONS[0].id;
++  // "Tables" only makes sense for Restaurant/Cafe, so it's inserted
++  // conditionally rather than living in the static SECTIONS list --
++  // mirrors the same per-store-type check cart-ui.js does for the
++  // seat/table row.
++  const sections = [...SECTIONS];
++  try {
++    const settings = await apiClient.get('/settings');
++    if (settings.storeType?.id === 'restaurant') {
++      const storeTypeIdx = sections.findIndex((s) => s.id === 'store-type');
++      sections.splice(storeTypeIdx + 1, 0, { id: 'tables', label: 'Tables', mount: mountTableSettings });
++    }
++  } catch (err) {
++    // Non-fatal -- Settings still works, just without the Tables section.
++  }
++
++  let activeId = sections[0].id;
+ 
+   const menu = el('nav', { class: 'settings-page-menu' },
+-    SECTIONS.map((section) => el('button', {
++    sections.map((section) => el('button', {
+       class: `settings-page-menu-item${section.id === activeId ? ' active' : ''}`,
+       onClick: () => selectSection(section.id)
+     }, section.label))
+@@ -63,10 +80,10 @@ export async function mountSettingsPage(container, { onStoreTypeChanged } = {})
+   async function selectSection(id) {
+     activeId = id;
+     [...menu.children].forEach((btn, i) => {
+-      btn.classList.toggle('active', SECTIONS[i].id === id);
++      btn.classList.toggle('active', sections[i].id === id);
+     });
+ 
+-    const section = SECTIONS.find((s) => s.id === id);
++    const section = sections.find((s) => s.id === id);
+     content.innerHTML = '';
+     content.appendChild(el('div', {}, 'Loading...'));
+     try {
+diff --git a/assets/js/modules/settings/table-form.js b/assets/js/modules/settings/table-form.js
+new file mode 100644
+index 0000000..f918553
+--- /dev/null
++++ b/assets/js/modules/settings/table-form.js
+@@ -0,0 +1,67 @@
++// assets/js/modules/settings/table-form.js
++// Create/edit form for a single restaurant/cafe table (a number/name
++// plus how many seats it has). Mirrors
++// assets/js/modules/categories/category-form.js.
++
++import apiClient from '../../shared/api-client.js';
++import { el } from '../../shared/utils.js';
++import modalManager from '../../ui/modal-manager.js';
++import notification from '../../ui/notification.js';
++
++export function openTableForm({ table = null, onSaved } = {}) {
++  const values = { number: '', seats: 4, ...(table || {}) };
++
++  const numberInput = el('input', {
++    value: values.number,
++    placeholder: 'e.g. 1, 12, Patio-3',
++    onInput: (e) => (values.number = e.target.value)
++  });
++  const seatsInput = el('input', {
++    type: 'number',
++    min: '1',
++    step: '1',
++    value: values.seats,
++    onInput: (e) => (values.seats = e.target.value)
++  });
++
++  const form = el('div', {}, [
++    el('div', { class: 'form-field' }, [el('label', {}, 'Table Number *'), numberInput]),
++    el('div', { class: 'form-field' }, [el('label', {}, 'Seats *'), seatsInput])
++  ]);
++
++  modalManager.open({
++    title: table ? 'Edit Table' : 'New Table',
++    content: form,
++    actions: [
++      { label: 'Cancel', className: 'btn-secondary' },
++      {
++        label: 'Save',
++        className: 'btn-primary',
++        closeOnClick: false,
++        onClick: async () => {
++          if (!String(values.number).trim()) {
++            notification.error('Table number is required.');
++            return;
++          }
++          if (!Number(values.seats) || Number(values.seats) <= 0) {
++            notification.error('Seats must be a positive number.');
++            return;
++          }
++          try {
++            const payload = { number: values.number, seats: Number(values.seats) };
++            if (table) {
++              await apiClient.put(`/tables/${table.id}`, payload);
++            } else {
++              await apiClient.post('/tables', payload);
++            }
++            notification.success('Table saved.');
++            modalManager.close();
++            onSaved?.();
++          } catch (err) {
++            notification.error(err.message);
++          }
++        }
++      }
++    ]
++  });
++}
+diff --git a/assets/js/modules/settings/table-settings.js b/assets/js/modules/settings/table-settings.js
+new file mode 100644
+index 0000000..58ee4bb
+--- /dev/null
++++ b/assets/js/modules/settings/table-settings.js
+@@ -0,0 +1,66 @@
++// assets/js/modules/settings/table-settings.js
++// Settings section (Restaurant/Cafe only) where the owner defines
++// their own tables -- a number/name plus seat count -- instead of the
++// old fixed 2/3/4/6/8-Seater buttons. The cart's table picker
++// (assets/js/modules/cart/cart-ui.js) reads this same /api/tables
++// list, so changes here show up there immediately.
++
++import apiClient from '../../shared/api-client.js';
++import { el } from '../../shared/utils.js';
++import { renderTable } from '../../ui/table-manager.js';
++import { openTableForm } from './table-form.js';
++import notification from '../../ui/notification.js';
++
++export async function mountTableSettings(container) {
++  container.appendChild(el('h3', {}, 'Tables'));
++  container.appendChild(el('p', { class: 'settings-hint' },
++    'The tables shown for selection in the cart. Add one entry per physical table with its seat count -- table numbers can be anything (1, 12, "Patio-3"), not just seat-count labels.'
++  ));
++  container.appendChild(el('div', { class: 'view-header' }, [
++    el('div', {}, ''),
++    el('button', { class: 'btn btn-primary', onClick: () => openTableForm({ onSaved: () => refresh() }) }, '+ New Table')
++  ]));
++
++  const tableContainer = el('div', { class: 'table-container' });
++  container.appendChild(tableContainer);
++
++  async function refresh() {
++    try {
++      const tables = await apiClient.get('/tables');
++      renderTable(tableContainer, {
++        columns: [
++          { key: 'number', label: 'Table Number' },
++          { key: 'seats', label: 'Seats' },
++          {
++            key: 'actions',
++            label: '',
++            render: (t) => {
++              const del = el('button', {
++                class: 'btn btn-sm btn-danger',
++                onClick: async (e) => {
++                  e.stopPropagation();
++                  if (!window.confirm(`Delete Table ${t.number}?`)) return;
++                  try {
++                    await apiClient.delete(`/tables/${t.id}`);
++                    notification.success('Table deleted.');
++                    refresh();
++                  } catch (err) {
++                    notification.error(err.message);
++                  }
++                }
++              }, '\u2715');
++              return del;
++            }
++          }
++        ],
++        rows: tables,
++        onRowClick: (t) => openTableForm({ table: t, onSaved: () => refresh() }),
++        emptyMessage: 'No tables yet. Add your first one above.'
++      });
++    } catch (err) {
++      notification.error(`Failed to load tables: ${err.message}`);
++    }
++  }
++
++  await refresh();
++}
+diff --git a/config/product-fields.json b/config/product-fields.json
+index 6bd3547..6f7ec2c 100644
+--- a/config/product-fields.json
++++ b/config/product-fields.json
+@@ -57,6 +57,7 @@
+     { "key": "name", "label": "Item Name", "type": "text", "required": true },
+     { "key": "sku", "label": "Item Code", "type": "text", "required": true },
+     { "key": "price", "label": "Price", "type": "currency", "required": true },
++    { "key": "category", "label": "Category", "type": "text", "required": false },
+     { "key": "modifiers", "label": "Modifiers", "type": "list", "required": false },
+     { "key": "prepNotes", "label": "Preparation Notes", "type": "text", "required": false }
+   ]
+diff --git a/server.js b/server.js
+index 99ce557..7d47e85 100644
+--- a/server.js
++++ b/server.js
+@@ -28,6 +28,7 @@ const { createCore } = require('./core');
+ const { initLogger } = require('./core/logger');
+ 
+ const buildCategoriesRouter = require('./api/categories');
++const buildTablesRouter = require('./api/tables');
+ const buildCustomersRouter = require('./api/customers');
+ const buildSuppliersRouter = require('./api/suppliers');
+ const buildInventoryRouter = require('./api/inventory');
+@@ -72,6 +73,7 @@ async function createServer({ dataDir = appConfig.dataDir } = {}) {
+   app.use('/api/uploads', uploadsRouter);
+ 
+   app.use('/api/categories', buildCategoriesRouter({ dataDir }));
++  app.use('/api/tables', buildTablesRouter({ dataDir }));
+   app.use('/api/customers', buildCustomersRouter({ dataDir }));
+   app.use('/api/suppliers', buildSuppliersRouter({ dataDir, storeConfig: core.storeConfig }));
+   app.use('/api/inventory', buildInventoryRouter(core));
