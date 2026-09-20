@@ -1,8 +1,8 @@
 // core/whatsapp-settings.js
 // Configuration for sending WhatsApp credit/due-balance reminders via
-// Twilio's WhatsApp Business API. B2B-only feature (see
-// core/transaction-manager.js -- due/credit payment itself is
-// B2B General Retail only, so reminders about it are too).
+// Twilio's WhatsApp Business API. Needs credit sales switched on (see
+// core/transaction-manager.js -- due/credit payment itself is gated
+// the same way, so reminders about it are too).
 //
 // IMPORTANT: WhatsApp requires business-initiated messages (i.e. not
 // a reply within 24h of the customer messaging you first) to use a

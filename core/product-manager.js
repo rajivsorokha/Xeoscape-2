@@ -19,14 +19,6 @@ const storeConfig = require('./store-config');
 class ProductManager {
   constructor(dataDir) {
     this.db = new SqliteStore(dataDir, 'products');
-    // Only used to auto-create a matching Category record when a
-    // product is saved with a category name that doesn't exist yet
-    // (see create()/update() below) -- a product's `category` field
-    // has always just been free text with no link to the categories
-    // collection, so importing/creating products never made them
-    // appear on the Categories screen even though the text showed up
-    // fine on the product itself. This closes that gap going forward.
-    this.categoriesDb = new SqliteStore(dataDir, 'categories');
   }
 
   _validate(fields, isPartial = false) {
@@ -48,11 +40,18 @@ class ProductManager {
     return errors;
   }
 
-  async list({ category, search } = {}) {
+  async list({ category, garmentType, search } = {}) {
     let products = await this.db.readAll();
     products = products.filter((p) => !p.storeType || p.storeType === storeConfig.currentStoreType);
+    // `category` is kept as a filter for any older data that still has
+    // it (see config/product-fields.json's history), even though it's
+    // no longer a field on the apparel form -- garmentType replaced it
+    // as the thing products are actually filtered/grouped by.
     if (category) {
       products = products.filter((p) => p.category === category);
+    }
+    if (garmentType) {
+      products = products.filter((p) => p.garmentType === garmentType);
     }
     if (search) {
       const q = search.toLowerCase();
@@ -68,32 +67,14 @@ class ProductManager {
   }
 
   /**
-   * Auto-creates a Category record matching this product's `category`
-   * text if one doesn't already exist for the current store type
-   * (case-insensitive match, same rule the CSV import's own duplicate
-   * check uses -- see api/categories.js). No-op if `category` is
-   * empty or already matches an existing one. Failures here are
-   * logged, not thrown -- a product save should never fail just
-   * because the categories table had a hiccup.
+   * Every product row, ignoring the active-store-type filter that
+   * list() applies. Used when allocating barcodes (core/barcode.js):
+   * a barcode has to be unique across the whole catalogue, because a
+   * scanner at the till doesn't know or care which store type a
+   * product was filed under.
    */
-  async _ensureCategoryExists(categoryName) {
-    if (!categoryName || !categoryName.trim()) return;
-    try {
-      const existing = (await this.categoriesDb.readAll()).filter(
-        (c) => !c.storeType || c.storeType === storeConfig.currentStoreType
-      );
-      const alreadyExists = existing.some((c) => c.name.toLowerCase() === categoryName.trim().toLowerCase());
-      if (alreadyExists) return;
-      await this.categoriesDb.insert({
-        id: randomUUID(),
-        name: categoryName.trim(),
-        description: '',
-        storeType: storeConfig.currentStoreType,
-        createdAt: new Date().toISOString()
-      });
-    } catch (err) {
-      console.warn(`Could not auto-create category "${categoryName}": ${err.message}`);
-    }
+  async listAllStoreTypes() {
+    return this.db.readAll();
   }
 
   async create(fields) {
@@ -110,7 +91,6 @@ class ProductManager {
       updatedAt: new Date().toISOString(),
       ...fields
     };
-    await this._ensureCategoryExists(product.category);
     return this.db.insert(product);
   }
 
@@ -121,7 +101,6 @@ class ProductManager {
       err.details = errors;
       throw err;
     }
-    if (patch.category) await this._ensureCategoryExists(patch.category);
     return this.db.update(id, { ...patch, updatedAt: new Date().toISOString() });
   }
 

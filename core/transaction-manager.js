@@ -4,7 +4,6 @@
 
 const { randomUUID } = require('crypto');
 const SqliteStore = require('./sqlite-store');
-const storeConfig = require('./store-config');
 
 class TransactionManager {
   constructor(dataDir, productManager, inventoryManager, storeProfile) {
@@ -21,7 +20,7 @@ class TransactionManager {
   /**
    * items: [{ productId, quantity }]
    */
-  async checkout({ items, customerId = null, paymentMethod = 'cash', cashierId = null, discount = 0, paidAmount = null, seatAssignment = null }) {
+  async checkout({ items, customerId = null, paymentMethod = 'cash', cashierId = null, discount = 0, paidAmount = null }) {
     if (!Array.isArray(items) || items.length === 0) {
       throw new Error('Transaction must include at least one item');
     }
@@ -62,13 +61,16 @@ class TransactionManager {
     const paid = paidAmount === null || paidAmount === undefined ? total : Number(paidAmount);
     const dueAmount = Number(Math.max(total - paid, 0).toFixed(2));
 
-    // Credit/due payment is a B2B General Retail feature only --
-    // wholesale accounts run on payment terms; walk-in retail,
-    // pharmacy, and restaurant/cafe counters are expected to be paid
-    // in full at the point of sale. Enforced here (not just hidden in
-    // the UI) so it can't be bypassed by calling the API directly.
-    if (dueAmount > 0 && storeConfig.currentStoreType !== 'b2bGeneralRetail') {
-      throw new Error('Due/credit payment is only available for B2B General Retail -- this sale must be paid in full.');
+    // Credit/due payment used to be gated on the B2B General Retail
+    // store type. This build ships Apparel / Fashion only, so the gate
+    // is now an explicit store setting instead (Settings -> Store
+    // Profile -> "Allow credit / due sales"), off by default: a
+    // walk-in boutique counter is paid in full, a wholesale or
+    // dealer-facing garment business runs accounts. Enforced here (not
+    // just hidden in the UI) so it can't be bypassed by calling the
+    // API directly.
+    if (dueAmount > 0 && !profile.creditSalesEnabled) {
+      throw new Error('Credit / due sales are turned off. Enable them in Settings \u2192 Store Profile, or take payment in full.');
     }
     if (dueAmount > 0 && !customerId) {
       throw new Error('Select a customer to leave a balance due -- a walk-in sale must be paid in full.');
@@ -104,7 +106,6 @@ class TransactionManager {
       customerId,
       cashierId,
       paymentMethod,
-      seatAssignment,
       status: 'completed',
       createdAt: new Date().toISOString()
     };
@@ -118,7 +119,7 @@ class TransactionManager {
    * this does NOT deduct stock -- stock is only committed once the held
    * order is actually paid via payFromHold().
    */
-  async hold({ items, ref = '', customerId = null, cashierId = null, discount = 0, seatAssignment = null }) {
+  async hold({ items, ref = '', customerId = null, cashierId = null, discount = 0 }) {
     if (!Array.isArray(items) || items.length === 0) {
       throw new Error('Cannot hold an empty order');
     }
@@ -162,7 +163,6 @@ class TransactionManager {
       customerId,
       cashierId,
       paymentMethod: null,
-      seatAssignment,
       status: 'pending',
       createdAt: new Date().toISOString()
     };
@@ -199,8 +199,8 @@ class TransactionManager {
 
     const paid = paidAmount === null || paidAmount === undefined ? total : Number(paidAmount);
     const dueAmount = Number(Math.max(total - paid, 0).toFixed(2));
-    if (dueAmount > 0 && storeConfig.currentStoreType !== 'b2bGeneralRetail') {
-      throw new Error('Due/credit payment is only available for B2B General Retail -- this order must be paid in full.');
+    if (dueAmount > 0 && !profile.creditSalesEnabled) {
+      throw new Error('Credit / due sales are turned off. Enable them in Settings \u2192 Store Profile, or take payment in full.');
     }
     if (dueAmount > 0 && !txn.customerId) {
       throw new Error('This order has no customer attached, so it must be paid in full.');

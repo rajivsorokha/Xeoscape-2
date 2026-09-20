@@ -7,23 +7,47 @@
 
 const SqliteStore = require('./sqlite-store');
 
+// This build ships pre-branded for Mini Mode (Kids Wear by Seven
+// Clans), so a fresh install already looks right without anyone
+// having to open Settings first. Everything here is still just the
+// starting value of an ordinary editable field -- Settings -> Store
+// Profile can change the name, address, tagline or logo at any time,
+// same as before.
 const DEFAULT_PROFILE = {
-  storeName: 'My Store',
-  addressLine1: '',
-  addressLine2: '',
+  storeName: 'Mini Mode',
+  // Shown under the store name on receipts, the login screen and the
+  // app header wherever there's room for it.
+  tagline: 'Kids Wear by Seven Clans',
+  addressLine1: 'Uripok Khaiden Leikai',
+  addressLine2: 'Imphal, Manipur - 795001',
   contactNumber: '',
   taxId: '', // GSTIN
   currencySymbol: '\u20B9', // Indian Rupee
   taxPercentage: 18, // standard GST rate
   chargeTax: true,
   quickBilling: false,
-  receiptFooter: 'Thank you for your business!',
-  // URL of an uploaded logo (e.g. /uploads/169...-ab12cd.png), shown on
-  // receipts/branding. Uploaded via the same /api/uploads/image
-  // endpoint (multer, 2MB cap, jpeg/png/webp only) the product form's
-  // Picture field already uses -- see
-  // assets/js/modules/settings/store-profile.js.
-  logoUrl: '',
+  // Whether a sale may be left partly unpaid against a customer's
+  // running balance (a "due"). Previously this was implied by the
+  // B2B General Retail store type; this build is Apparel / Fashion
+  // only, so it's an explicit opt-in instead. Off by default -- a
+  // retail counter takes payment in full. Turning it on also enables
+  // the Due / Outstanding report and WhatsApp payment reminders.
+  creditSalesEnabled: false,
+  receiptFooter: 'Thank you for shopping with us!',
+  // URL of the shop's logo, shown on receipts and throughout the app
+  // (login screen, header). Defaults to the bundled Mini Mode logo
+  // (assets/images/store-logo.png, served at /images/store-logo.png
+  // -- see server.js's static mount of the assets/ folder). Replacing
+  // it works the same way as before: upload a new one from Settings
+  // -> Store Profile via the same /api/uploads/image endpoint (multer,
+  // 2MB cap, jpeg/png/webp only) the product form's Picture field uses.
+  logoUrl: '/images/store-logo.png',
+  // A tighter square crop of the logo (just the smiley mark) for
+  // compact spots that can't fit the full wide banner -- the login
+  // screen's round badge. Not user-editable; it's a fixed companion
+  // asset to the bundled default logo, so it's not exposed as a
+  // Settings field.
+  iconUrl: '/images/store-icon.png',
   // How this install is deployed: a single till with everything local
   // ('standalone'), a till that connects to a separate Network POS
   // Server ('networkTerminal'), or the machine acting as that server

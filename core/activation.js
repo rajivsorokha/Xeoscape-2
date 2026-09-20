@@ -1,9 +1,12 @@
 // core/activation.js
-// Per-store-type activation/license gate. Each store type (General
-// Retail, Pharmacy, Grocery/Supermarket, Apparel/Fashion, Electronics,
-// Restaurant/Cafe, B2B General Retails, and more) has its own activation key defined in
+// Activation/license gate. This build ships a single edition --
+// Apparel / Fashion -- whose activation key is defined in
 // config/activation-keys.json. Entering a valid key both unlocks the
-// app and sets the active store type to match that key.
+// app and sets the active store type to match that key. The
+// key-to-store-type mapping is kept (rather than collapsed to a
+// single hard-coded key) so another edition can be reintroduced by
+// adding entries to config/store-types.json, product-fields.json and
+// activation-keys.json, with no code change.
 //
 // This is a straightforward, self-contained license gate suitable for
 // controlling which edition a given install runs as -- it is not a

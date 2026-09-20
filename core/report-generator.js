@@ -25,7 +25,7 @@ class ReportGenerator {
     // tax was actually collected on those historical sales either.
     const totalRevenue = transactions.reduce((sum, t) => sum + (t.total - (t.taxAmount || 0)), 0);
     const totalTax = transactions.reduce((sum, t) => sum + (t.taxAmount || 0), 0);
-    // Collected vs extended-on-credit within this date range (B2B
+    // Collected vs extended-on-credit within this date range (credit
     // General Retail's Credit payment method -- see
     // core/transaction-manager.js#checkout). totalPaid + totalDue ==
     // totalRevenue + totalTax == the tax-inclusive total of every
@@ -54,7 +54,7 @@ class ReportGenerator {
   }
 
   /**
-   * Who currently owes money and how much -- B2B General Retail's
+   * Who currently owes money and how much -- the credit feature's
    * Credit payment method (see core/transaction-manager.js#checkout).
    * Deliberately NOT date-ranged and NOT summed from transactions'
    * dueAmount fields: a customer's `balance` is the one place that
@@ -281,7 +281,7 @@ class ReportGenerator {
         productId: p.id,
         name: p.name,
         sku: p.sku,
-        category: p.category || null,
+        garmentType: p.garmentType || null,
         currentStock: p.stock || 0,
         unitsSold: t.unitsSold,
         revenue: Number(t.revenue.toFixed(2)),
@@ -371,7 +371,7 @@ class ReportGenerator {
         name: p.name,
         sku: p.sku || '',
         vendor: p.vendor || '',
-        category: p.category || null,
+        garmentType: p.garmentType || null,
         quantity,
         cost,
         price,

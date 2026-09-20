@@ -11,8 +11,9 @@ const STORE_TYPES_PATH = path.join(__dirname, '..', 'config', 'store-types.json'
 const PRODUCT_FIELDS_PATH = path.join(__dirname, '..', 'config', 'product-fields.json');
 const PERMISSIONS_PATH = path.join(__dirname, '..', 'config', 'permissions.json');
 
-// Default store type for a fresh install.
-const DEFAULT_STORE_TYPE = 'generalRetail';
+// Default (and only) store type for a fresh install. This build is
+// the Apparel / Fashion edition -- see config/store-types.json.
+const DEFAULT_STORE_TYPE = 'apparel';
 
 // Appended to every store type's field set (see getProductFields
 // below) -- optional everywhere, used only for gross-margin analysis
