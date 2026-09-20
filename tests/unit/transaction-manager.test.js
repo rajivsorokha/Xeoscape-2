@@ -15,7 +15,7 @@ describe('TransactionManager', () => {
 
   beforeEach(async () => {
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yourshopapp-test-'));
-    storeConfig.setStoreType('generalRetail');
+    storeConfig.setStoreType('apparel');
     productManager = new ProductManager(dataDir);
     inventoryManager = new InventoryManager(dataDir, productManager);
     storeProfile = new StoreProfile(dataDir);
@@ -164,10 +164,10 @@ describe('TransactionManager', () => {
     let customer;
 
     beforeEach(async () => {
-      // Due/credit payment is now B2B-only (see
-      // core/transaction-manager.js#checkout) -- switched here since
-      // the outer beforeEach defaults to 'generalRetail'.
-      storeConfig.setStoreType('b2bGeneralRetail');
+      // Credit/due payment is gated on the store's own
+      // creditSalesEnabled setting rather than the store type (see
+      // core/transaction-manager.js#checkout), so switch it on here.
+      await storeProfile.update({ creditSalesEnabled: true });
       const customersStore = new SqliteStore(dataDir, 'customers');
       customer = await customersStore.insert({ id: 'cust-1', name: 'Jane Doe', balance: 0 });
     });
@@ -193,15 +193,15 @@ describe('TransactionManager', () => {
       expect(updated.balance).toBe(6);
     });
 
-    test('rejects a partial payment outside B2B General Retail, even with a customer attached', async () => {
-      storeConfig.setStoreType('generalRetail');
+    test('rejects a partial payment when credit sales are off, even with a customer attached', async () => {
+      await storeProfile.update({ creditSalesEnabled: false });
       await expect(
         transactionManager.checkout({
           items: [{ productId: product.id, quantity: 1 }],
           customerId: customer.id,
           paidAmount: 4
         })
-      ).rejects.toThrow('only available for B2B General Retail');
+      ).rejects.toThrow('Credit / due sales are turned off');
     });
   });
 

@@ -16,7 +16,7 @@ describe('ReportGenerator#productPerformance', () => {
 
   beforeEach(async () => {
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yourshopapp-report-test-'));
-    storeConfig.setStoreType('generalRetail');
+    storeConfig.setStoreType('apparel');
     productManager = new ProductManager(dataDir);
     inventoryManager = new InventoryManager(dataDir, productManager);
     const storeProfile = new StoreProfile(dataDir);
@@ -118,7 +118,7 @@ describe('ReportGenerator#inventoryMovement', () => {
 
   beforeEach(async () => {
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yourshopapp-movement-test-'));
-    storeConfig.setStoreType('generalRetail');
+    storeConfig.setStoreType('apparel');
     productManager = new ProductManager(dataDir);
     inventoryManager = new InventoryManager(dataDir, productManager);
     const storeProfile = new StoreProfile(dataDir);

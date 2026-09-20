@@ -12,7 +12,7 @@ describe('ProductManager', () => {
 
   beforeEach(() => {
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yourshopapp-test-'));
-    storeConfig.setStoreType('generalRetail');
+    storeConfig.setStoreType('apparel');
     productManager = new ProductManager(dataDir);
   });
 
@@ -30,7 +30,7 @@ describe('ProductManager', () => {
 
     expect(product.id).toBeDefined();
     expect(product.name).toBe('Widget');
-    expect(product.storeType).toBe('generalRetail');
+    expect(product.storeType).toBe('apparel');
   });
 
   test('rejects product creation missing required fields', async () => {
@@ -59,63 +59,46 @@ describe('ProductManager', () => {
     expect(await productManager.get(product.id)).toBeNull();
   });
 
-  test('creates a pharmacy product with expiry/minStock fields', async () => {
-    storeConfig.setStoreType('pharmacy');
+  test('creates an apparel product with its garment-specific fields', async () => {
     const product = await productManager.create({
-      name: 'Amoxicillin',
-      sku: '123456789',
-      price: 12.5,
+      name: 'Round Neck Tee',
+      sku: 'TSHI-NAV-M-0001',
+      garmentType: 'T-Shirt',
+      color: 'Navy Blue',
+      size: 'M',
+      material: '100% Cotton',
+      mrp: 1299,
+      price: 799,
       stock: 20,
-      minStock: 10,
-      expirationDate: '2027-01-01',
-      supplier: 'Acme Pharma'
+      minStock: 5
     });
-    expect(product.storeType).toBe('pharmacy');
-    expect(product.minStock).toBe(10);
-    expect(product.expirationDate).toBe('2027-01-01');
-    storeConfig.setStoreType('generalRetail');
+    expect(product.storeType).toBe('apparel');
+    expect(product.garmentType).toBe('T-Shirt');
+    expect(product.color).toBe('Navy Blue');
+    expect(product.size).toBe('M');
+    expect(product.minStock).toBe(5);
   });
 
-  describe('category auto-creation', () => {
-    // A product's `category` was always just free text with no link
-    // to the actual categories collection -- creating/importing
-    // products never made the category appear on the Categories
-    // screen, even though the text showed up fine on the product
-    // itself. This closes that gap.
-    const SqliteStore = require('../../core/sqlite-store');
+  describe('filtering the catalog', () => {
+    // There is no separate Categories feature for this apparel-only
+    // build -- garmentType (a field on the product itself) is what
+    // the POS catalog and Products screen filter by instead. `category`
+    // is still accepted as a plain filter for any older data that has
+    // it, even though it's no longer a field on the form.
+    test('list() can filter by garmentType', async () => {
+      await productManager.create({ name: 'Tee', sku: 'T1', garmentType: 'T-Shirt', price: 5, stock: 1 });
+      await productManager.create({ name: 'Cargo', sku: 'C1', garmentType: 'Cargo Pant', price: 5, stock: 1 });
 
-    test('creating a product with a brand-new category name auto-creates a matching category record', async () => {
-      await productManager.create({ name: 'Widget', sku: 'W1', price: 5, stock: 1, category: 'Brand New Category' });
-
-      const categoriesDb = new SqliteStore(dataDir, 'categories');
-      const categories = await categoriesDb.readAll();
-      expect(categories.some((c) => c.name === 'Brand New Category')).toBe(true);
+      const tees = await productManager.list({ garmentType: 'T-Shirt' });
+      expect(tees.map((p) => p.sku)).toEqual(['T1']);
     });
 
-    test('does not create a duplicate category (case-insensitive) for a category that already exists', async () => {
-      await productManager.create({ name: 'Widget A', sku: 'WA', price: 5, stock: 1, category: 'Snacks' });
-      await productManager.create({ name: 'Widget B', sku: 'WB', price: 5, stock: 1, category: 'snacks' }); // different case
+    test('list() can still filter by the legacy category field', async () => {
+      await productManager.create({ name: 'Old Stock', sku: 'O1', category: 'Legacy Bin', price: 5, stock: 1 });
+      await productManager.create({ name: 'Tee', sku: 'T2', garmentType: 'T-Shirt', price: 5, stock: 1 });
 
-      const categoriesDb = new SqliteStore(dataDir, 'categories');
-      const categories = await categoriesDb.readAll();
-      expect(categories.filter((c) => c.name.toLowerCase() === 'snacks')).toHaveLength(1);
-    });
-
-    test('updating a product to a new category also auto-creates it', async () => {
-      const product = await productManager.create({ name: 'Widget', sku: 'W2', price: 5, stock: 1, category: 'Original' });
-      await productManager.update(product.id, { category: 'Renamed Category' });
-
-      const categoriesDb = new SqliteStore(dataDir, 'categories');
-      const categories = await categoriesDb.readAll();
-      expect(categories.some((c) => c.name === 'Renamed Category')).toBe(true);
-    });
-
-    test('a product with no category set does not create anything', async () => {
-      await productManager.create({ name: 'Widget', sku: 'W3', price: 5, stock: 1 });
-
-      const categoriesDb = new SqliteStore(dataDir, 'categories');
-      const categories = await categoriesDb.readAll();
-      expect(categories).toHaveLength(0);
+      const legacy = await productManager.list({ category: 'Legacy Bin' });
+      expect(legacy.map((p) => p.sku)).toEqual(['O1']);
     });
   });
 });

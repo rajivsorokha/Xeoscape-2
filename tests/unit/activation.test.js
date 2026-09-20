@@ -25,15 +25,15 @@ describe('Activation', () => {
   });
 
   test('activates with a valid key and sets the matching store type', async () => {
-    const result = await activation.activate('PHARM-RX7Q-4M2P-2026');
+    const result = await activation.activate('APRL-FASH-3K8N-2026');
     expect(result.activated).toBe(true);
-    expect(result.storeType).toBe('pharmacy');
-    expect(storeConfig.currentStoreType).toBe('pharmacy');
+    expect(result.storeType).toBe('apparel');
+    expect(storeConfig.currentStoreType).toBe('apparel');
   });
 
   test('activation key matching is case-insensitive and trims whitespace', async () => {
-    const result = await activation.activate('  pharm-rx7q-4m2p-2026  ');
-    expect(result.storeType).toBe('pharmacy');
+    const result = await activation.activate('  aprl-fash-3k8n-2026  ');
+    expect(result.storeType).toBe('apparel');
   });
 
   test('rejects an invalid key', async () => {
@@ -41,15 +41,15 @@ describe('Activation', () => {
   });
 
   test('persists activation status across a new Activation instance (same dataDir)', async () => {
-    await activation.activate('RETAIL-GENR-8F3K-2026');
+    await activation.activate('APRL-FASH-3K8N-2026');
     const reloaded = new Activation(dataDir);
     const status = await reloaded.getStatus();
     expect(status.activated).toBe(true);
-    expect(status.storeType).toBe('generalRetail');
+    expect(status.storeType).toBe('apparel');
   });
 
   test('deactivate clears the activation record', async () => {
-    await activation.activate('GROCR-SUPM-9T5W-2026');
+    await activation.activate('APRL-FASH-3K8N-2026');
     await activation.deactivate();
     expect(await activation.getStatus()).toEqual({ activated: false, storeType: null });
   });

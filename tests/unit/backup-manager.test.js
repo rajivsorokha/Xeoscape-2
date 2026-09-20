@@ -15,7 +15,7 @@ describe('BackupManager', () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'yourshopapp-backup-test-'));
     dataDir = path.join(root, 'store');
     fs.mkdirSync(dataDir, { recursive: true });
-    storeConfig.setStoreType('generalRetail');
+    storeConfig.setStoreType('apparel');
     backupManager = new BackupManager(dataDir);
   });
 

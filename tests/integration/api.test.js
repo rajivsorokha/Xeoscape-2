@@ -141,15 +141,17 @@ describe('API integration', () => {
   test('GET /api/inventory/products/csv-template returns a downloadable CSV matching the current store type', async () => {
     const res = await call('GET', '/api/inventory/products/csv-template');
     expect(res.status).toBe(200);
-    expect(res.body).toMatch(/^name,sku,price,category,stock/);
+    // Apparel's field set leads with the garment's own attributes --
+    // see config/product-fields.json.
+    expect(res.body).toMatch(/^name,sku,brand,garmentType,gender,size,color/);
   });
 
   test('POST /api/inventory/products/csv-import bulk-creates products and reports per-row errors', async () => {
     const csv =
-      'name,sku,price,category,stock\n' +
-      'CSV Widget A,CSV-A,10,Gadgets,5\n' +
-      ',CSV-B,10,Gadgets,5\n' + // missing required name -> should error, not abort the batch
-      'CSV Widget C,CSV-C,7.5,Gadgets,2\n';
+      'name,sku,price,garmentType,stock\n' +
+      'CSV Widget A,CSV-A,10,T-Shirt,5\n' +
+      ',CSV-B,10,T-Shirt,5\n' + // missing required name -> should error, not abort the batch
+      'CSV Widget C,CSV-C,7.5,T-Shirt,2\n';
 
     const res = await uploadCsv('/api/inventory/products/csv-import', csv);
     expect(res.status).toBe(200);
@@ -160,26 +162,5 @@ describe('API integration', () => {
     const listRes = await call('GET', '/api/inventory/products');
     expect(listRes.body.some((p) => p.sku === 'CSV-A')).toBe(true);
     expect(listRes.body.some((p) => p.sku === 'CSV-C')).toBe(true);
-  });
-
-  test('GET /api/categories/csv-template and POST csv-import work end to end', async () => {
-    const templateRes = await call('GET', '/api/categories/csv-template');
-    expect(templateRes.status).toBe(200);
-    expect(templateRes.body).toMatch(/^name,description/);
-
-    const csv = 'name,description\nBeverages,Cold drinks and juices\nSnacks,\n';
-    const importRes = await uploadCsv('/api/categories/csv-import', csv);
-    expect(importRes.status).toBe(200);
-    expect(importRes.body.createdCount).toBe(2);
-
-    const listRes = await call('GET', '/api/categories');
-    expect(listRes.body.some((c) => c.name === 'Beverages')).toBe(true);
-  });
-
-  test('CSV category import skips duplicates by name', async () => {
-    const csv = 'name,description\nBeverages,Duplicate attempt\n';
-    const importRes = await uploadCsv('/api/categories/csv-import', csv);
-    expect(importRes.body.createdCount).toBe(0);
-    expect(importRes.body.errors[0].message).toMatch(/already exists/);
   });
 });
