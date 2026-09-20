@@ -193,9 +193,14 @@ body {
   box-shadow: 0 0 0 3px rgba(95, 190, 170, 0.2);
 }
 
+/* Cart pane gets 1 part, product catalog gets 2 -- the till (cart) is
+   a narrow working strip, most of the screen is for finding and
+   adding items. Order in the markup matches: cartPane is appended
+   first (assets/js/core/app.js#_mountPosView), so it's the first
+   (1fr) track and sits on the left. */
 .pos-view {
   display: grid;
-  grid-template-columns: 1fr 1.3fr;
+  grid-template-columns: 1fr 2fr;
   gap: 1.5rem;
   align-items: start;
 }
@@ -261,6 +266,7 @@ body {
   align-items: center;
   justify-content: center;
   box-shadow: 0 6px 16px rgba(93, 156, 236, 0.45);
+  overflow: hidden; /* clips a bundled logo image to the circle */
 }
 
 .gate-title { margin: 0; text-align: center; color: var(--color-text); font-size: 1.5rem; font-weight: 700; }

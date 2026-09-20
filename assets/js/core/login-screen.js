@@ -3,6 +3,7 @@
 // Uses the existing /api/users/authenticate endpoint via session.js.
 
 import { el } from '../shared/utils.js';
+import apiClient from '../shared/api-client.js';
 import session from './session.js';
 
 /**
@@ -10,6 +11,12 @@ import session from './session.js';
  */
 export function renderLoginScreen(rootEl) {
   return new Promise((resolve) => {
+    // The store profile endpoint (GET /api/settings/profile) is
+    // deliberately open to unauthenticated requests -- see
+    // api/settings.js -- specifically so the login screen can show
+    // the shop's own branding instead of a generic "Xeoscape" badge
+    // before anyone has signed in.
+    let profile = { storeName: 'Xeoscape', tagline: '', iconUrl: '' };
     let username = '';
     let password = '';
     const errorEl = el('div', { class: 'gate-error' }, '');
@@ -51,12 +58,24 @@ export function renderLoginScreen(rootEl) {
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
     });
 
+    const badgeEl = el('div', { class: 'gate-badge' }, 'X');
+    const titleEl = el('h1', { class: 'gate-title' }, 'Xeoscape');
+    const subtitleEl = el('p', { class: 'gate-subtitle' }, 'Log in to continue');
+
+    function applyBranding() {
+      if (profile.iconUrl) {
+        badgeEl.replaceChildren(el('img', { class: 'gate-badge-img', src: profile.iconUrl, alt: '' }));
+      }
+      titleEl.textContent = profile.storeName || 'Xeoscape';
+      subtitleEl.textContent = profile.tagline || 'Log in to continue';
+    }
+
     rootEl.innerHTML = '';
     rootEl.appendChild(el('div', { class: 'gate-screen' }, [
       el('div', { class: 'gate-card' }, [
-        el('div', { class: 'gate-badge' }, 'X'),
-        el('h1', { class: 'gate-title' }, 'Xeoscape'),
-        el('p', { class: 'gate-subtitle' }, 'Log in to continue'),
+        badgeEl,
+        titleEl,
+        subtitleEl,
         el('label', { class: 'gate-label' }, 'Username'),
         usernameInput,
         el('label', { class: 'gate-label' }, 'Password'),
@@ -68,5 +87,12 @@ export function renderLoginScreen(rootEl) {
     ]));
 
     usernameInput.focus();
+
+    // Fetched after the form is already visible and interactive, so a
+    // slow or failed request never delays someone from logging in --
+    // it can only upgrade the badge/title/subtitle once it resolves.
+    apiClient.get('/settings/profile')
+      .then((loaded) => { profile = loaded; applyBranding(); })
+      .catch(() => {});
   });
 }

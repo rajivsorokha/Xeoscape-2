@@ -1,6 +1,9 @@
 // assets/js/modules/products/product-form.js
 // Builds a create/edit form whose fields are driven dynamically by
 // /api/inventory/fields, so the same form works for any store type.
+// Dropdown ('select') fields render as real dropdowns, and the
+// barcode/SKU field carries a Generate button that allocates an
+// unused code -- see the notes inline below.
 // Also includes a Picture upload field (image is uploaded immediately
 // on selection; the returned URL is saved as the product's imageUrl).
 
@@ -80,28 +83,83 @@ export async function openProductForm({ product = null, initialValues = null, on
 
   const fields = schema.fields.map((fieldDef) => {
     const isCheckbox = fieldDef.type === 'boolean';
+    const isSelect = fieldDef.type === 'select' && Array.isArray(fieldDef.options);
 
-    const input = el('input', {
-      type: inputTypeFor(fieldDef.type),
-      step: fieldDef.type === 'currency' ? '0.01' : undefined,
-      checked: isCheckbox && values[fieldDef.key] ? 'checked' : undefined,
-      value: isCheckbox ? undefined : (values[fieldDef.key] ?? ''),
-      onChange: isCheckbox ? (e) => { values[fieldDef.key] = e.target.checked; } : undefined,
-      onInput: isCheckbox ? undefined : (e) => {
-        const raw = e.target.value;
-        values[fieldDef.key] = (fieldDef.type === 'number' || fieldDef.type === 'currency') && raw !== ''
-          ? Number(raw)
-          : raw;
-      }
-    });
+    // A 'select' field (Garment Type, Size, Department...) renders as a
+    // real dropdown. It previously fell through to a plain text box,
+    // which let two people type "T-shirt" and "T Shirt" for the same
+    // rail -- and inconsistent values there are exactly what breaks
+    // barcode SKUs and stock reports later.
+    const input = isSelect
+      ? el('select', {
+        onChange: (e) => { values[fieldDef.key] = e.target.value; }
+      }, [
+        el('option', { value: '' }, fieldDef.required ? 'Select...' : '\u2014'),
+        ...fieldDef.options.map((option) => el('option', { value: option }, option))
+      ])
+      : el('input', {
+        type: inputTypeFor(fieldDef.type),
+        step: fieldDef.type === 'currency' ? '0.01' : undefined,
+        checked: isCheckbox && values[fieldDef.key] ? 'checked' : undefined,
+        value: isCheckbox ? undefined : (values[fieldDef.key] ?? ''),
+        onChange: isCheckbox ? (e) => { values[fieldDef.key] = e.target.checked; } : undefined,
+        onInput: isCheckbox ? undefined : (e) => {
+          const raw = e.target.value;
+          values[fieldDef.key] = (fieldDef.type === 'number' || fieldDef.type === 'currency') && raw !== ''
+            ? Number(raw)
+            : raw;
+        }
+      });
+
+    // A <select>'s value can only be set once its <option>s exist.
+    if (isSelect) input.value = values[fieldDef.key] ?? '';
 
     const errorEl = el('div', { class: 'field-error' }, '');
     errorEls[fieldDef.key] = errorEl;
 
+    // The barcode field gets a Generate button: unbranded and tailored
+    // stock arrives with no scannable code at all, and typing a
+    // 13-digit number by hand is both slow and a duplicate waiting to
+    // happen. The server allocates it so it's guaranteed unique
+    // against the whole catalogue (see core/barcode.js).
+    let control = input;
+    if (fieldDef.key === 'sku') {
+      const generateBtn = el('button', {
+        class: 'btn btn-sm btn-secondary',
+        type: 'button',
+        title: 'Allocate an unused barcode for this garment'
+      }, 'Generate');
+
+      generateBtn.addEventListener('click', async () => {
+        generateBtn.disabled = true;
+        try {
+          const { codes } = await apiClient.post('/inventory/barcodes/generate', {
+            symbology: 'CODE128',
+            count: 1,
+            attributes: {
+              garmentType: values.garmentType,
+              brand: values.brand,
+              color: values.color,
+              size: values.size
+            }
+          });
+          values.sku = codes[0];
+          input.value = codes[0];
+          errorEl.textContent = '';
+        } catch (err) {
+          errorEl.textContent = err.message;
+        } finally {
+          generateBtn.disabled = false;
+        }
+      });
+
+      control = el('div', { class: 'field-with-action' }, [input, generateBtn]);
+    }
+
     // Checkboxes read more naturally with the label after the control.
     const fieldChildren = isCheckbox
       ? [el('label', {}, [input, ` ${fieldDef.label}`]), errorEl]
-      : [el('label', {}, `${fieldDef.label}${fieldDef.required ? ' *' : ''}`), input, errorEl];
+      : [el('label', {}, `${fieldDef.label}${fieldDef.required ? ' *' : ''}`), control, errorEl];
 
     return el('div', { class: 'form-field' }, fieldChildren);
   });

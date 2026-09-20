@@ -1,11 +1,16 @@
 // assets/js/modules/products/product-list.js
-// Renders the POS catalog pane: search + category filter + a Grid/
-// Table view-style toggle, wired to /api/inventory/products. This is
-// the checkout-screen catalog a cashier browses to add items to the
-// cart -- product creation and deletion are deliberately NOT here
-// (use the "Products" nav button's management popup for those, which
-// has its own full CRUD table). Table view here shows Edit + Add to
-// Cart per row, but no Delete, for the same reason.
+// Renders the POS catalog pane: search + garment-type filter + a
+// Grid/Table view-style toggle, wired to /api/inventory/products.
+// This is the checkout-screen catalog a cashier browses to add items
+// to the cart -- product creation and deletion are deliberately NOT
+// here (use the "Products" nav button's management popup for those,
+// which has its own full CRUD table). Table view here shows Edit +
+// Add to Cart per row, but no Delete, for the same reason.
+//
+// The filter is Garment Type (T-Shirt, Cargo Pant, Half Pant...)
+// rather than a separate free-text Category, since for an
+// apparel-only catalog the garment type already is the category --
+// see config/product-fields.json.
 
 import apiClient from '../../shared/api-client.js';
 import { el } from '../../shared/utils.js';
@@ -25,12 +30,12 @@ function loadSavedViewStyle() {
 
 export async function mountProductList(container, { eventBus } = {}) {
   let currentSearch = '';
-  let currentCategory = '';
+  let currentGarmentType = '';
   let viewStyle = loadSavedViewStyle();
 
-  const categorySelect = el('select', {
-    onChange: (e) => { currentCategory = e.target.value; refresh(); }
-  }, [el('option', { value: '' }, 'All Categories')]);
+  const garmentTypeSelect = el('select', {
+    onChange: (e) => { currentGarmentType = e.target.value; refresh(); }
+  }, [el('option', { value: '' }, 'All Garment Types')]);
 
   const gridStyleBtn = el('button', { class: 'view-style-btn', title: 'Grid view' }, '\u25A6 Grid');
   const tableStyleBtn = el('button', { class: 'view-style-btn', title: 'Table view' }, '\u2630 Table');
@@ -54,7 +59,7 @@ export async function mountProductList(container, { eventBus } = {}) {
       placeholder: 'Search product by name or sku',
       onInput: (e) => { currentSearch = e.target.value; refresh(); }
     }),
-    categorySelect,
+    garmentTypeSelect,
     viewStyleToggle
   ]));
 
@@ -68,15 +73,23 @@ export async function mountProductList(container, { eventBus } = {}) {
   grid.style.display = viewStyle === 'grid' ? 'grid' : 'none';
   tableWrap.style.display = viewStyle === 'table' ? 'block' : 'none';
 
-  async function loadCategories() {
+  async function loadGarmentTypes() {
     try {
-      const categories = await apiClient.get('/categories');
-      categorySelect.innerHTML = '';
-      categorySelect.appendChild(el('option', { value: '' }, 'All Categories'));
-      categories.forEach((c) => categorySelect.appendChild(el('option', { value: c.name }, c.name)));
+      // The filter's options come straight from the product field
+      // schema (the same dropdown options the product form itself
+      // offers for Garment Type -- see config/product-fields.json),
+      // rather than a separate managed list, so there's nothing to
+      // keep in sync between the two.
+      const { fields } = await apiClient.get('/inventory/fields');
+      const garmentTypeField = fields.find((f) => f.key === 'garmentType');
+      garmentTypeSelect.innerHTML = '';
+      garmentTypeSelect.appendChild(el('option', { value: '' }, 'All Garment Types'));
+      (garmentTypeField?.options || []).forEach((option) => (
+        garmentTypeSelect.appendChild(el('option', { value: option }, option))
+      ));
     } catch (err) {
-      // Non-fatal -- category filter just stays at "All Categories"
-      console.warn('Could not load categories', err);
+      // Non-fatal -- the filter just stays at "All Garment Types"
+      console.warn('Could not load garment types', err);
     }
   }
 
@@ -86,7 +99,7 @@ export async function mountProductList(container, { eventBus } = {}) {
     try {
       const params = new URLSearchParams();
       if (currentSearch) params.set('search', currentSearch);
-      if (currentCategory) params.set('category', currentCategory);
+      if (currentGarmentType) params.set('garmentType', currentGarmentType);
       const query = params.toString();
       const products = await apiClient.get(`/inventory/products${query ? `?${query}` : ''}`);
 
@@ -114,6 +127,6 @@ export async function mountProductList(container, { eventBus } = {}) {
     }
   }
 
-  await loadCategories();
+  await loadGarmentTypes();
   await refresh();
 }

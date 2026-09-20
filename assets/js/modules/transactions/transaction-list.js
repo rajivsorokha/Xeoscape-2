@@ -39,11 +39,11 @@ export async function mountTransactionList(container) {
     el('div', { class: 'stat-card stat-card-info' }, [el('div', { class: 'stat-label' }, 'ITEMS SOLD'), itemsValueEl]),
     el('div', { class: 'stat-card stat-card-green' }, [el('div', { class: 'stat-label' }, 'PRODUCTS'), productsValueEl])
   ];
-  // Outstanding Credit only means anything for B2B General Retail
+  // Outstanding Credit only means anything when credit sales are on
   // (the only store type Credit payment is available for -- see
   // core/transaction-manager.js#checkout) -- omitted entirely
   // elsewhere rather than always showing a meaningless ₹0.
-  if (settingsStore.isB2B()) {
+  if (settingsStore.isCreditEnabled()) {
     statCards.push(el('div', { class: 'stat-card stat-card-warning' }, [el('div', { class: 'stat-label' }, 'OUTSTANDING DUE'), creditValueEl]));
   }
   container.appendChild(el('div', { class: 'stats-row' }, statCards));
@@ -114,7 +114,7 @@ export async function mountTransactionList(container) {
         apiClient.get(`/transactions/reports/top-products${params ? `?${params}` : ''}`),
         apiClient.get('/inventory/products'),
         apiClient.get('/users'),
-        settingsStore.isB2B() ? apiClient.get('/transactions/reports/outstanding-credit') : Promise.resolve(null)
+        settingsStore.isCreditEnabled() ? apiClient.get('/transactions/reports/outstanding-credit') : Promise.resolve(null)
       ]);
 
       const cashierName = Object.fromEntries(users.map((u) => [u.id, u.displayName || u.username]));

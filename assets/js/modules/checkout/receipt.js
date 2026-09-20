@@ -1,6 +1,11 @@
 // assets/js/modules/checkout/receipt.js
 // Renders a printable receipt for a completed transaction, and an
 // order preview (pre-payment) triggered by the POS panel's Print button.
+//
+// The header block (logo, store name, tagline, address, contact,
+// GSTIN) is shared between the final receipt and the pre-payment
+// preview, so what a customer sees before paying matches what they
+// get on paper afterwards.
 
 import { el } from '../../shared/utils.js';
 import { formatMoney, formatDate } from '../../shared/formatters.js';
@@ -10,6 +15,25 @@ import apiClient from '../../shared/api-client.js';
 import { openWhatsApp } from '../../shared/whatsapp.js';
 import { promptModal } from '../../ui/prompt.js';
 import notification from '../../ui/notification.js';
+
+/**
+ * Builds the shop-identity block shown at the top of every printed
+ * receipt and preview: logo, store name, tagline, address and contact
+ * details. Each line is optional and simply omitted when not set in
+ * Settings -> Store Profile, so an unbranded install still prints a
+ * clean receipt rather than empty lines.
+ */
+function renderReceiptHeader(profile) {
+  return el('div', { class: 'receipt-shop-header' }, [
+    profile.logoUrl ? el('img', { class: 'receipt-logo', src: profile.logoUrl, alt: profile.storeName || '' }) : null,
+    el('div', { class: 'receipt-store-name' }, profile.storeName || 'Xeoscape'),
+    profile.tagline ? el('div', { class: 'receipt-tagline' }, profile.tagline) : null,
+    profile.addressLine1 ? el('div', { class: 'receipt-address' }, profile.addressLine1) : null,
+    profile.addressLine2 ? el('div', { class: 'receipt-address' }, profile.addressLine2) : null,
+    profile.contactNumber ? el('div', { class: 'receipt-address' }, `Ph: ${profile.contactNumber}`) : null,
+    profile.taxId ? el('div', { class: 'receipt-address' }, `GSTIN: ${profile.taxId}`) : null
+  ]);
+}
 
 export function renderReceipt(transaction) {
   const symbol = settingsStore.getCurrencySymbol();
@@ -23,11 +47,10 @@ export function renderReceipt(transaction) {
   );
 
   const receipt = el('div', { class: 'receipt', id: 'printable-receipt' }, [
+    renderReceiptHeader(profile),
     el('div', { class: 'receipt-header' }, [
-      el('div', {}, profile.storeName || 'Xeoscape'),
       el('div', { class: 'receipt-date' }, formatDate(transaction.createdAt))
     ]),
-    transaction.seatAssignment ? el('div', { class: 'receipt-table' }, `Table: ${transaction.seatAssignment}`) : null,
     el('div', { class: 'receipt-lines' }, lines),
     el('div', { class: 'receipt-totals' }, [
       el('div', {}, `Subtotal: ${formatMoney(transaction.subtotal, symbol)}`),
@@ -103,6 +126,7 @@ export function renderReceipt(transaction) {
  */
 export function renderOrderPreview({ lines = [], discount = 0, total = 0 }) {
   const symbol = settingsStore.getCurrencySymbol();
+  const profile = settingsStore.getProfile();
 
   if (lines.length === 0) {
     modalManager.open({
@@ -121,6 +145,7 @@ export function renderOrderPreview({ lines = [], discount = 0, total = 0 }) {
   );
 
   const preview = el('div', { class: 'receipt' }, [
+    renderReceiptHeader(profile),
     el('div', { class: 'receipt-header' }, [el('div', {}, 'Order Preview (unpaid)')]),
     el('div', { class: 'receipt-lines' }, rows),
     el('div', { class: 'receipt-totals' }, [

@@ -25,8 +25,8 @@ export function openCustomerForm({ customer = null, onSaved } = {}) {
   // Balance/due-payment section only makes sense for an existing
   // customer who's actually accrued a balance (see
   // core/transaction-manager.js#checkout's partial/due payment
-  // handling, which is B2B General Retail only -- so a balance here
-  // implicitly means this is a B2B account already).
+  // handling, which needs credit sales switched on -- so a balance here
+  // implicitly means this account already buys on credit).
   if (customer && customer.balance > 0) {
     let payAmount = '';
     const payInput = el('input', { type: 'number', min: '0', step: '0.01', max: String(customer.balance), placeholder: '0.00', onInput: (e) => { payAmount = e.target.value; } });

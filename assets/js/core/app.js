@@ -1,7 +1,7 @@
 // assets/js/core/app.js
 // Main application controller. Wires up the event bus, router, and
 // builds the real button-bar topbar (wraps naturally at narrow widths).
-// Products/Categories/Users/Settings open as modals (matching the real
+// Products/Users/Settings open as modals (matching the real
 // app's modal-based popups); only Point of Sale and Transactions are
 // full-page views, toggled via a single shared button.
 
@@ -19,8 +19,6 @@ import { mountCart } from '../modules/cart/cart-ui.js';
 import { openOpenTabsModal } from '../modules/cart/open-tabs.js';
 import { openPaymentDialog } from '../modules/checkout/payment.js';
 import { renderOrderPreview } from '../modules/checkout/receipt.js';
-import { openCategoryForm } from '../modules/categories/category-form.js';
-import { openCategoryTableModal } from '../modules/categories/category-table-modal.js';
 import { mountTransactionList } from '../modules/transactions/transaction-list.js';
 import { openCustomerOrdersModal } from '../modules/transactions/customer-orders.js';
 import { openUserForm } from '../modules/settings/user-form.js';
@@ -53,7 +51,9 @@ export default class App {
 
   // Point of Sale, Transactions, and Settings are full-page views
   // (matching the real #pointofsale / #transactions_view / settings
-  // screen toggles). Products, Categories, and Users remain modals.
+  // screen toggles). Products and Users remain modals. There is no
+  // separate Categories feature -- Garment Type (a field on the
+  // product itself) covers that need for an apparel-only catalog.
   _registerRoutes() {
     this.router.register('pos', { mount: (viewEl) => this._mountPosView(viewEl) });
     this.router.register('transactions', { mount: (viewEl) => mountTransactionList(viewEl) });
@@ -79,14 +79,17 @@ export default class App {
   _buildTopbar() {
     const row1 = document.getElementById('app-nav-row');
 
+    // A small shop mark at the very start of the header, so the
+    // store's own branding (not just its name in the browser tab) is
+    // visible throughout the app, not only on the receipt and the
+    // login screen. Populated once the store profile loads below --
+    // logoUrl is unset until then, so nothing renders in the meantime
+    // rather than a broken image icon flashing up.
+    this.brandMark = el('img', { class: 'app-brand-mark', style: 'display:none', alt: '' });
+
     const productsGroup = el('div', { class: 'nav-btn-group' }, [
       this._navBtn({ label: '\u{1F4CB} Products', colorClass: 'nav-btn-green', onClick: () => openProductTableModal() }),
       this._addBtn('nav-btn-warning', () => openProductForm({}), 'New Product')
-    ]);
-
-    const categoriesGroup = el('div', { class: 'nav-btn-group' }, [
-      this._navBtn({ label: '\u{1F4CA} Categories', colorClass: 'nav-btn-green', onClick: () => openCategoryTableModal() }),
-      this._addBtn('nav-btn-warning', () => openCategoryForm({}), 'New Category')
     ]);
 
     const openTabsBtn = this._navBtn({
@@ -155,7 +158,7 @@ export default class App {
     if (!canAccessSettings) settingsBtn.style.display = 'none';
 
     row1.innerHTML = '';
-    const leftGroup = el('div', { class: 'app-header-group' }, [productsGroup, categoriesGroup, openTabsBtn, ordersBtn]);
+    const leftGroup = el('div', { class: 'app-header-group' }, [this.brandMark, productsGroup, openTabsBtn, ordersBtn]);
     row1.appendChild(leftGroup);
     mountAlertsWidget(leftGroup);
     const rightGroup = el('div', { class: 'app-header-group' }, [settingsBtn, posTxnToggleBtn, usersGroup, adminBtn, logoutBtn]);
@@ -191,11 +194,10 @@ export default class App {
     mountProductList(catalogPane, { eventBus: this.eventBus });
     mountCart(cartPane, {
       cartManager: this.cartManager,
-      onPay: ({ discount, customerId, seatAssignment }) => openPaymentDialog({
+      onPay: ({ discount, customerId }) => openPaymentDialog({
         cartManager: this.cartManager,
         discount,
         customerId,
-        seatAssignment,
         currentUserId: session.getCurrentUser()?.id
       }),
       onPrintPreview: (order) => renderOrderPreview(order)
@@ -204,10 +206,22 @@ export default class App {
 
   async _loadStoreTypeLabel() {
     try {
-      const settings = await apiClient.get('/settings');
+      const [settings, profile] = await Promise.all([
+        apiClient.get('/settings'),
+        apiClient.get('/settings/profile')
+      ]);
       const label = document.getElementById('store-type-label');
       if (label) label.textContent = `Store Type: ${settings.storeType.label}`;
-      document.title = `${settings.appName} \u2014 ${settings.storeType.label}`;
+      // The browser tab/window title leads with the shop's own name
+      // rather than the app's -- "Mini Mode" tells someone which till
+      // this is at a glance far better than "Xeoscape" does.
+      document.title = `${profile.storeName || settings.appName} \u2014 ${settings.storeType.label}`;
+
+      if (this.brandMark && profile.iconUrl) {
+        this.brandMark.src = profile.iconUrl;
+        this.brandMark.alt = profile.storeName || '';
+        this.brandMark.style.display = 'block';
+      }
     } catch (err) {
       console.warn('Could not load store settings', err);
     }

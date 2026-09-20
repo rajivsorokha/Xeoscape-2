@@ -1,8 +1,8 @@
 // assets/js/shared/settings-store.js
 // Small in-memory cache for the store profile (currency symbol, tax
-// rate, etc.) and the active store type id, so UI modules can format
-// money consistently and check "is this B2B" without each one
-// re-fetching /api/settings/profile or /api/settings.
+// rate, credit-sales flag, etc.) and the active store type id, so UI
+// modules can format money consistently and check store-wide toggles
+// without each one re-fetching /api/settings/profile or /api/settings.
 
 import apiClient from './api-client.js';
 
@@ -12,6 +12,7 @@ const state = {
   chargeTax: false,
   storeName: 'My Store',
   receiptFooter: '',
+  creditSalesEnabled: false,
   storeTypeId: null
 };
 
@@ -41,13 +42,17 @@ function getProfile() {
 }
 
 /**
- * Whether the active store type is B2B General Retail -- gates
- * credit/due-payment UI (see assets/js/modules/checkout/payment.js
- * and core/transaction-manager.js#checkout, which enforces the same
- * restriction server-side so this isn't just a client-side toggle).
+ * Whether this store allows a sale to be left partly unpaid against a
+ * customer's balance. Gates the Credit payment tab, the Due /
+ * Outstanding report, and WhatsApp payment reminders. Previously this
+ * was inferred from the B2B General Retail store type; this build is
+ * the Apparel / Fashion edition only, so it's now an explicit store
+ * setting (Settings -> Store Profile). core/transaction-manager.js
+ * enforces the same rule server-side, so this isn't only a
+ * client-side toggle.
  */
-function isB2B() {
-  return state.storeTypeId === 'b2bGeneralRetail';
+function isCreditEnabled() {
+  return Boolean(state.creditSalesEnabled);
 }
 
-export default { load, getCurrencySymbol, getProfile, isB2B, isLoaded: () => loaded };
+export default { load, getCurrencySymbol, getProfile, isCreditEnabled, isLoaded: () => loaded };

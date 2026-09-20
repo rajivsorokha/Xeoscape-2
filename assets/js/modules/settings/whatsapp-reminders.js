@@ -1,7 +1,8 @@
 // assets/js/modules/settings/whatsapp-reminders.js
 // "WhatsApp Reminders" settings section: configure Twilio's WhatsApp
-// API and send credit/due-balance reminders to customers. B2B General
-// Retail only -- due/credit payment itself is B2B-only (see
+// API and send credit/due-balance reminders to customers. Only
+// available when credit sales are switched on -- due/credit payment
+// itself is gated the same way (see
 // core/transaction-manager.js), so reminders about it are too.
 
 import apiClient from '../../shared/api-client.js';
@@ -12,10 +13,10 @@ import notification from '../../ui/notification.js';
 export async function mountWhatsAppReminders(container) {
   container.appendChild(el('h3', {}, 'WhatsApp Reminders'));
 
-  if (!settingsStore.isB2B()) {
+  if (!settingsStore.isCreditEnabled()) {
     container.appendChild(el('p', { class: 'settings-hint' },
-      'WhatsApp credit reminders are only available for B2B General Retail (they remind customers about the credit/due balances that store type supports). ' +
-      'Switch Store Type to B2B General Retail in Settings \u2192 Store Type to use this.'
+      'WhatsApp payment reminders need credit sales turned on (they chase the outstanding balances that feature creates). ' +
+      'Tick "Allow credit / due sales" in Settings \u2192 Store Profile to use this.'
     ));
     return;
   }

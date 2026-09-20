@@ -1,6 +1,6 @@
 // assets/js/modules/settings/user-management.js
 // Staff account management: list users, create new ones with granular
-// per-feature permissions (Products, Categories, Transactions, Users,
+// per-feature permissions (Products, Transactions, Users,
 // Settings), matching PharmaSpot's real permission checkboxes.
 
 import apiClient from '../../shared/api-client.js';
@@ -10,7 +10,6 @@ import notification from '../../ui/notification.js';
 
 const PERMISSIONS = [
   { key: 'perm_products', label: 'Manage Products and Stock' },
-  { key: 'perm_categories', label: 'Manage Product Categories' },
   { key: 'perm_transactions', label: 'View Transactions' },
   { key: 'perm_users', label: 'Manage Users and Permissions' },
   { key: 'perm_settings', label: 'Manage Settings' }

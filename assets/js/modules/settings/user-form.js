@@ -10,7 +10,6 @@ import notification from '../../ui/notification.js';
 
 const PERMISSIONS = [
   { key: 'perm_products', label: 'Products' },
-  { key: 'perm_categories', label: 'Categories' },
   { key: 'perm_transactions', label: 'Transactions' },
   { key: 'perm_users', label: 'Users' },
   { key: 'perm_settings', label: 'Settings' }

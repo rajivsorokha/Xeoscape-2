@@ -1,7 +1,7 @@
 // assets/js/modules/products/product-table-view.js
 // The "table / CRUD style" rendering of the product catalog: Barcode,
 // Item Name, Price, Stock, Expiry Date, Category, Supplier, Action
-// columns with inline Edit/Delete (and optionally Add to Cart)
+// columns with inline Edit/Label/Delete (and optionally Add to Cart)
 // buttons per row. Shared by product-table-modal.js (the "Products"
 // nav button's popup) and product-list.js's inline Grid/Table toggle,
 // so there's one implementation instead of two copies drifting apart.
@@ -10,6 +10,7 @@ import { el } from '../../shared/utils.js';
 import apiClient from '../../shared/api-client.js';
 import { formatMoney, formatShortDate } from '../../shared/formatters.js';
 import { openProductForm } from './product-form.js';
+import { openQuickLabelPrint } from '../labels/label-quick-print.js';
 import notification from '../../ui/notification.js';
 
 /**
@@ -31,7 +32,7 @@ export function renderProductsTable(container, products, symbol, onChange, { onA
   }
 
   const thead = el('thead', {}, [
-    el('tr', {}, ['Barcode', 'Item Name', 'Price', 'Stock', 'Expiry Date', 'Category', 'Supplier', 'Action'].map((h) => el('th', {}, h)))
+    el('tr', {}, ['Barcode', 'Item Name', 'Price', 'Stock', 'Expiry Date', 'Garment Type', 'Supplier', 'Action'].map((h) => el('th', {}, h)))
   ]);
 
   const rows = products.map((p) => {
@@ -42,6 +43,11 @@ export function renderProductsTable(container, products, symbol, onChange, { onA
         onClick: () => openProductForm({ product: p, onSaved: onChange })
       }, '\u270E')
     ];
+    actionButtons.push(el('button', {
+      class: 'btn btn-sm btn-info',
+      title: 'Print barcode labels',
+      onClick: () => openQuickLabelPrint(p)
+    }, '\u{1F3F7}'));
     if (showDelete) {
       actionButtons.push(el('button', {
         class: 'btn btn-sm btn-danger',
@@ -72,7 +78,7 @@ export function renderProductsTable(container, products, symbol, onChange, { onA
       el('td', {}, formatMoney(p.price, symbol)),
       el('td', {}, String(p.stock ?? 0)),
       el('td', {}, p.expirationDate ? formatShortDate(p.expirationDate) : '-'),
-      el('td', {}, p.category || '-'),
+      el('td', {}, p.garmentType || '-'),
       el('td', {}, p.supplier || '-'),
       el('td', { class: 'action' }, actionButtons)
     ]);

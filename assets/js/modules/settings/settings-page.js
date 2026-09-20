@@ -22,6 +22,7 @@ import { mountEmailSettings } from './email-settings-panel.js';
 import { mountAiSettings } from './ai-settings-panel.js';
 import { mountBackupSettings } from './backup-settings.js';
 import { mountBulkImport } from './bulk-import.js';
+import { mountBarcodeLabels } from './barcode-labels.js';
 import { createBackToPosButton } from '../../ui/back-to-pos-button.js';
 import notification from '../../ui/notification.js';
 
@@ -30,6 +31,7 @@ const SECTIONS = [
   { id: 'store-type', label: 'Store Type', mount: (container, ctx) => mountStoreTypeConfig(container, { onChanged: ctx.onStoreTypeChanged }) },
   { id: 'bulk-import', label: 'Bulk Product Import', mount: mountBulkImport },
   { id: 'quick-scan-add', label: 'Quick Scan Add', mount: mountQuickScanAdd },
+  { id: 'barcode-labels', label: 'Barcode Labels', mount: mountBarcodeLabels },
   { id: 'whatsapp-reminders', label: 'WhatsApp Reminders', mount: mountWhatsAppReminders },
   { id: 'due-outstanding-report', label: 'Due / Outstanding Report', mount: mountDueOutstandingReport },
   { id: 'report-generator', label: 'Report Generator', mount: mountReportGenerator },

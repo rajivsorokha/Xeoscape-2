@@ -158,6 +158,7 @@ export async function mountStoreProfile(container) {
     applicationSection,
     logoSection,
     textField('storeName', 'Store Name', 'Cool Pharmacy'),
+    textField('tagline', 'Tagline', 'e.g. Kids Wear by Seven Clans'),
     textField('addressLine1', 'Address Line 1', '123 Main Street, Building #'),
     textField('addressLine2', 'Address Line 2', 'City, Country'),
     textField('contactNumber', 'Contact Number', '0800 111 000'),

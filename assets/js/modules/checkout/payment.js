@@ -15,7 +15,7 @@ import { renderReceipt } from './receipt.js';
 
 const KEYPAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0'];
 
-export function openPaymentDialog({ cartManager, currentUserId, discount = 0, customerId = null, seatAssignment = null, onComplete }) {
+export function openPaymentDialog({ cartManager, currentUserId, discount = 0, customerId = null, onComplete }) {
   const subtotal = cartManager.getSubtotal();
   let paymentMethod = 'cash';
   let amountTendered = '';
@@ -32,14 +32,14 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
   const total = () => Number((afterDiscount() + taxAmount()).toFixed(2));
 
   // --- Method tabs (Cash / Card / Credit) ---
-  // Credit is a B2B General Retail feature only (see
+  // Credit needs credit sales switched on for the store (see
   // core/transaction-manager.js#checkout, which enforces this
   // server-side too -- this isn't just a hidden button). Cash and
   // Card always require the full amount; Credit is the one place a
   // shortfall is expected and goes onto the customer's account balance.
   const cashTab = el('button', { class: 'payment-tab active', type: 'button' }, 'Cash');
   const cardTab = el('button', { class: 'payment-tab', type: 'button' }, 'Card');
-  const creditTab = settingsStore.isB2B() ? el('button', { class: 'payment-tab', type: 'button' }, 'Credit') : null;
+  const creditTab = settingsStore.isCreditEnabled() ? el('button', { class: 'payment-tab', type: 'button' }, 'Credit') : null;
   const tabs = el('div', { class: 'payment-tabs' }, creditTab ? [cashTab, cardTab, creditTab] : [cashTab, cardTab]);
 
   // --- Card Info field (only shown for Card payments) ---
@@ -113,7 +113,7 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
       // credit card); the amount it leaves unpaid is tracked and
       // reported as "Due"/"Outstanding" throughout the rest of the
       // app (see core/transaction-manager.js#checkout's dueAmount
-      // handling, B2B General Retail only, enforced server-side).
+      // handling, requires credit sales to be on, enforced server-side).
       if (!customerId) {
         changeBar.textContent = 'Select a customer to bill this to.';
         changeBar.classList.add('insufficient');
@@ -198,7 +198,6 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
         paymentMethod,
         discount,
         customerId: customerId || null,
-        seatAssignment,
         cashierId: currentUserId,
         paidAmount: paymentMethod === 'card' ? total() : tendered
       });

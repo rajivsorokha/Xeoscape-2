@@ -2,7 +2,7 @@
 // "Due / Outstanding" report: every customer currently owing money
 // from a Credit sale (goods taken now, paid later -- see
 // core/transaction-manager.js#checkout), with a quick action to
-// record a payment. B2B General Retail only, since that's the only
+// record a payment. Needs credit sales switched on, since that's the only
 // store type Credit exists for.
 
 import apiClient from '../../shared/api-client.js';
@@ -15,10 +15,10 @@ import notification from '../../ui/notification.js';
 export async function mountDueOutstandingReport(container) {
   container.appendChild(el('h3', {}, 'Due / Outstanding Report'));
 
-  if (!settingsStore.isB2B()) {
+  if (!settingsStore.isCreditEnabled()) {
     container.appendChild(el('p', { class: 'settings-hint' },
-      'Due/Outstanding tracking is only available for B2B General Retail (goods taken now, paid later -- via the Credit payment method at checkout). ' +
-      'Switch Store Type to B2B General Retail in Settings \u2192 Store Type to use this.'
+      'Due / Outstanding tracking needs credit sales turned on (goods taken now, paid later -- via the Credit payment method at checkout). ' +
+      'Tick "Allow credit / due sales" in Settings \u2192 Store Profile to use this.'
     ));
     return;
   }

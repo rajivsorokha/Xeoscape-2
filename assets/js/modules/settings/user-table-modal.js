@@ -10,7 +10,6 @@ import notification from '../../ui/notification.js';
 
 const PERMISSION_LABELS = {
   perm_products: 'Products',
-  perm_categories: 'Categories',
   perm_transactions: 'Transactions',
   perm_users: 'Users',
   perm_settings: 'Settings'
