@@ -12,6 +12,7 @@ import { openCustomerForm } from '../customers/customer-form.js';
 import { openWhatsApp } from '../../shared/whatsapp.js';
 import { promptModal } from '../../ui/prompt.js';
 import notification from '../../ui/notification.js';
+import { setScanHandler } from '../../shared/barcode-scanner.js';
 
 export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
   let discount = 0;
@@ -35,15 +36,25 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
   customerSelect.addEventListener('change', (e) => { selectedCustomerId = e.target.value; });
 
   // --- Barcode / SKU scan row ---
+  // Also fed by the USB scanner (e.g. Dcode DC7132): it's a plain HID
+  // keyboard-wedge device, so pulling the trigger just "types" the
+  // code into whatever has focus, then Enter. barcode-scanner.js
+  // recognizes that fast keystroke burst globally -- so a scan is
+  // added to the cart even if the cashier's cursor is somewhere else
+  // entirely (a quantity box, the discount field, nowhere) -- and
+  // routes it here through the same addByBarcode() path a manually
+  // typed code + Enter in this box would use, so both behave
+  // identically and nothing can double-add an item.
   const barcodeInput = el('input', { type: 'text', placeholder: 'Scan barcode or type the number then hit enter' });
-  async function addByBarcode() {
-    const code = barcodeInput.value.trim();
+  async function addByBarcode(code) {
+    code = (code ?? barcodeInput.value).trim();
     if (!code) return;
     try {
       const matches = await apiClient.get(`/inventory/products?search=${encodeURIComponent(code)}`);
       const exact = matches.find((p) => p.sku === code) || matches[0];
       if (!exact) {
         notification.error(`No product found for "${code}"`);
+        barcodeInput.value = '';
         return;
       }
       cartManager.add(exact, 1);
@@ -55,6 +66,15 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
   const barcodeForm = el('form', {
     onSubmit: (e) => { e.preventDefault(); addByBarcode(); }
   }, [barcodeInput, el('button', { class: 'btn btn-primary btn-icon', type: 'submit' }, '\u2713')]);
+
+  // While the POS screen is up, any scan (from anywhere -- see above)
+  // adds to this cart. Cleared the moment the app navigates away from
+  // 'pos', so a scan on the Transactions or Settings screen doesn't
+  // silently add something to a cart that's out of sight.
+  setScanHandler((code) => addByBarcode(code));
+  cartManager.eventBus?.on('route:changed', ({ routeId }) => {
+    if (routeId !== 'pos') setScanHandler(null);
+  });
 
   // --- Cart table ---
   const listEl = el('div', { class: 'cart-lines' });

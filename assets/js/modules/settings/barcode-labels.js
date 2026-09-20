@@ -574,11 +574,7 @@ export async function mountBarcodeLabels(container) {
       symbology: state.symbology
     }, state.skipCount, state.labelsAcross);
 
-    const printWindow = openPrintWindow(html);
-    if (!printWindow) {
-      notification.error('The print window was blocked. Allow pop-ups for Xeoscape and try again.');
-      return;
-    }
+    openPrintWindow(html);
     notification.success(`Sent ${items.length} label${items.length === 1 ? '' : 's'} to the printer.`);
   });
 

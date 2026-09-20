@@ -15,6 +15,115 @@ import apiClient from '../../shared/api-client.js';
 import { openWhatsApp } from '../../shared/whatsapp.js';
 import { promptModal } from '../../ui/prompt.js';
 import notification from '../../ui/notification.js';
+import { printHtml } from '../../shared/print-utils.js';
+
+function escapeHtml(text) {
+  return String(text ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
+
+// Minimal copy of the .receipt* rules from assets/css/components.css,
+// inlined here rather than shared, because the printed copy goes
+// through a standalone iframe document (see shared/print-utils.js)
+// that never loads the app's own stylesheet.
+const RECEIPT_PRINT_CSS = `
+  * { box-sizing: border-box; }
+  body { font-family: 'Courier New', monospace; margin: 0; padding: 8mm; color: #36404a; }
+  .receipt-shop-header { text-align: center; margin-bottom: 0.5rem; }
+  .receipt-logo { max-width: 100%; max-height: 60px; margin: 0 auto 0.3rem; display: block; }
+  .receipt-store-name { font-weight: 700; font-size: 1.05rem; }
+  .receipt-tagline { font-size: 0.78rem; color: #75798b; margin-bottom: 0.15rem; }
+  .receipt-address { font-size: 0.72rem; color: #75798b; line-height: 1.3; }
+  .receipt-header { text-align: center; margin-bottom: 0.5rem; }
+  .receipt-header div:first-child { font-weight: 700; }
+  .receipt-line, .receipt-totals div { display: flex; justify-content: space-between; gap: 1rem; }
+  .receipt-total-line { font-weight: 700; border-top: 1px dashed #5fbeaa; margin-top: 0.4rem; padding-top: 0.4rem; }
+  .receipt-payment { margin-top: 0.4rem; }
+  .receipt-footer { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px dashed #dbdde3; text-align: center; font-size: 0.8rem; color: #75798b; }
+  @page { margin: 0; }
+`;
+
+function receiptHeaderHtml(profile) {
+  return `
+    <div class="receipt-shop-header">
+      ${profile.logoUrl ? `<img class="receipt-logo" src="${escapeHtml(profile.logoUrl)}" alt="">` : ''}
+      <div class="receipt-store-name">${escapeHtml(profile.storeName || 'Xeoscape')}</div>
+      ${profile.tagline ? `<div class="receipt-tagline">${escapeHtml(profile.tagline)}</div>` : ''}
+      ${profile.addressLine1 ? `<div class="receipt-address">${escapeHtml(profile.addressLine1)}</div>` : ''}
+      ${profile.addressLine2 ? `<div class="receipt-address">${escapeHtml(profile.addressLine2)}</div>` : ''}
+      ${profile.contactNumber ? `<div class="receipt-address">Ph: ${escapeHtml(profile.contactNumber)}</div>` : ''}
+      ${profile.taxId ? `<div class="receipt-address">GSTIN: ${escapeHtml(profile.taxId)}</div>` : ''}
+    </div>`;
+}
+
+/**
+ * Builds a full, standalone HTML document for a paid receipt -- built
+ * fresh from the transaction data (rather than serializing the modal's
+ * DOM) so it carries its own styles and prints correctly through the
+ * hidden-iframe route in shared/print-utils.js, independent of the
+ * app's own stylesheet or whatever else is currently on screen.
+ */
+function buildReceiptPrintHtml(transaction) {
+  const symbol = settingsStore.getCurrencySymbol();
+  const profile = settingsStore.getProfile();
+
+  const lines = transaction.items.map((li) => `
+    <div class="receipt-line">
+      <span>${escapeHtml(li.name)} x${escapeHtml(li.quantity)}</span>
+      <span>${escapeHtml(formatMoney(li.lineTotal, symbol))}</span>
+    </div>`).join('');
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Receipt</title><style>${RECEIPT_PRINT_CSS}</style></head>
+<body>
+  <div class="receipt">
+    ${receiptHeaderHtml(profile)}
+    <div class="receipt-header"><div>${escapeHtml(formatDate(transaction.createdAt))}</div></div>
+    <div class="receipt-lines">${lines}</div>
+    <div class="receipt-totals">
+      <div>Subtotal: ${escapeHtml(formatMoney(transaction.subtotal, symbol))}</div>
+      <div>Discount: ${escapeHtml(formatMoney(transaction.discount, symbol))}</div>
+      <div class="receipt-total-line">Total: ${escapeHtml(formatMoney(transaction.total, symbol))}</div>
+    </div>
+    <div class="receipt-payment">Paid via ${escapeHtml(transaction.paymentMethod)}</div>
+    ${profile.receiptFooter ? `<div class="receipt-footer">${escapeHtml(profile.receiptFooter)}</div>` : ''}
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Same idea as buildReceiptPrintHtml, for the pre-payment order
+ * preview.
+ */
+function buildOrderPreviewPrintHtml({ lines = [], discount = 0, total = 0 }) {
+  const symbol = settingsStore.getCurrencySymbol();
+  const profile = settingsStore.getProfile();
+
+  const rows = lines.map((line) => `
+    <div class="receipt-line">
+      <span>${escapeHtml(line.product.name)} x${escapeHtml(line.quantity)}</span>
+      <span>${escapeHtml(formatMoney(line.product.price * line.quantity, symbol))}</span>
+    </div>`).join('');
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Order Preview</title><style>${RECEIPT_PRINT_CSS}</style></head>
+<body>
+  <div class="receipt">
+    ${receiptHeaderHtml(profile)}
+    <div class="receipt-header"><div>Order Preview (unpaid)</div></div>
+    <div class="receipt-lines">${rows}</div>
+    <div class="receipt-totals">
+      ${discount > 0 ? `<div>Discount: ${escapeHtml(formatMoney(discount, symbol))}</div>` : ''}
+      <div class="receipt-total-line">Total: ${escapeHtml(formatMoney(total, symbol))}</div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
 
 /**
  * Builds the shop-identity block shown at the top of every printed
@@ -69,15 +178,16 @@ export function renderReceipt(transaction) {
         label: 'Print',
         className: 'btn-secondary',
         closeOnClick: false,
-        // Small delay before printing: this modal opens immediately
-        // after the payment modal closes (a rapid transition), and
-        // invoking window.print() while the webview is still settling
-        // from that appears related to a reported app-crash-on-print
-        // issue that only reproduced from this specific flow (not from
-        // the pre-checkout order preview, which doesn't follow a rapid
-        // modal transition). Letting a frame settle first is a cheap,
-        // safe mitigation to try.
-        onClick: () => setTimeout(() => window.print(), 100)
+        // Printed via a hidden iframe (see shared/print-utils.js)
+        // rather than window.print() on the main window: printing the
+        // main window directly had two problems -- it printed
+        // whatever else happened to be on screen along with the
+        // receipt (the app has no @media print rules to hide the rest
+        // of the UI), and calling it right after the payment modal
+        // closes (a rapid transition) was linked to an app-crash-on-
+        // print report. Building a standalone document and printing
+        // that instead sidesteps both.
+        onClick: () => printHtml(buildReceiptPrintHtml(transaction)).catch((err) => notification.error(`Print failed: ${err.message}`))
       },
       {
         label: '\u{1F4AC} WhatsApp',
@@ -158,7 +268,7 @@ export function renderOrderPreview({ lines = [], discount = 0, total = 0 }) {
     title: 'Order Preview',
     content: preview,
     actions: [
-      { label: 'Print', className: 'btn-secondary', closeOnClick: false, onClick: () => setTimeout(() => window.print(), 100) },
+      { label: 'Print', className: 'btn-secondary', closeOnClick: false, onClick: () => printHtml(buildOrderPreviewPrintHtml({ lines, discount, total })).catch((err) => notification.error(`Print failed: ${err.message}`)) },
       { label: 'Close', className: 'btn-primary' }
     ]
   });

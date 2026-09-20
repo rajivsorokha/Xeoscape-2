@@ -11,6 +11,7 @@
 // width they were calculated for, which is what makes them scan.
 
 import { barcodeSvg, encodeCode128, encodeEan13 } from '../../shared/barcode.js';
+import { printHtml } from '../../shared/print-utils.js';
 
 /**
  * @typedef {object} LabelItem
@@ -379,30 +380,24 @@ export function buildLabelSheetHtml(items, size, options = {}, skipCount = 0, la
 }
 
 /**
- * Opens the built document in a new window and sends it to the print
- * dialog.
+ * Sends the built document to the printer.
  *
- * Printing happens from a separate window rather than an iframe or the
- * app window so the app's own stylesheet can't leak in and shift the
- * layout, and so the operator can hit "Print" again for a second run
- * without rebuilding everything.
+ * This goes through a hidden iframe (see shared/print-utils.js) rather
+ * than a new window/popup: the app's own stylesheet can't leak into a
+ * separate document either way, and unlike `window.open()` this
+ * doesn't depend on the runtime allowing a new window to be created --
+ * which is exactly what was silently failing when this app is packaged
+ * as a Tauri desktop app (labels or receipts would report "the print
+ * window was blocked" on some PCs no matter what pop-up settings were
+ * changed, because it was never really the OS/browser pop-up blocker
+ * involved).
  *
  * @param {string} html
- * @returns {Window|null} null if a pop-up blocker got in the way
+ * @returns {true} kept boolean-returning for existing call sites; a
+ *   failure now surfaces as a thrown/rejected error instead, since a
+ *   hidden iframe has no "blocked" state to report.
  */
 export function openPrintWindow(html) {
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) return null;
-
-  printWindow.document.open();
-  printWindow.document.write(html);
-  printWindow.document.close();
-
-  // Wait for layout before printing -- calling print() immediately can
-  // catch the document mid-render and produce blank pages.
-  printWindow.addEventListener('load', () => {
-    printWindow.focus();
-    printWindow.print();
-  });
-  return printWindow;
+  printHtml(html).catch((err) => console.error('Failed to print label sheet:', err));
+  return true;
 }

@@ -193,11 +193,7 @@ export function openQuickLabelPrint(product) {
           }
           const items = Array.from({ length: quantity }, () => labelItem(1));
           const labelsAcross = size.kind === 'sheet' ? 1 : Math.max(1, Number(acrossSelect.value) || 1);
-          const printWindow = openPrintWindow(buildLabelSheetHtml(items, size, contentOptions(), 0, labelsAcross));
-          if (!printWindow) {
-            notification.error('The print window was blocked. Allow pop-ups for Xeoscape and try again.');
-            return;
-          }
+          openPrintWindow(buildLabelSheetHtml(items, size, contentOptions(), 0, labelsAcross));
           notification.success(`Sent ${quantity} label${quantity === 1 ? '' : 's'} to the printer.`);
           modalManager.close();
         }
