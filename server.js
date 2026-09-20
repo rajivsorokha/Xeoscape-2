@@ -27,7 +27,6 @@ const appConfig = require('./app.config');
 const { createCore } = require('./core');
 const { initLogger } = require('./core/logger');
 
-const buildCategoriesRouter = require('./api/categories');
 const buildCustomersRouter = require('./api/customers');
 const buildSuppliersRouter = require('./api/suppliers');
 const buildInventoryRouter = require('./api/inventory');
@@ -71,7 +70,6 @@ async function createServer({ dataDir = appConfig.dataDir } = {}) {
   app.use('/uploads', express.static(uploadsDir));
   app.use('/api/uploads', uploadsRouter);
 
-  app.use('/api/categories', buildCategoriesRouter({ dataDir }));
   app.use('/api/customers', buildCustomersRouter({ dataDir }));
   app.use('/api/suppliers', buildSuppliersRouter({ dataDir, storeConfig: core.storeConfig }));
   app.use('/api/inventory', buildInventoryRouter(core));
@@ -90,7 +88,7 @@ async function createServer({ dataDir = appConfig.dataDir } = {}) {
   app.use('/api/whatsapp', buildWhatsAppRouter({
     whatsappSettings: core.whatsappSettings,
     customersDb: new SqliteStore(dataDir, 'customers'),
-    storeConfig: core.storeConfig
+    storeProfile: core.storeProfile
   }));
   app.use('/api/ai', buildAiRouter(core));
 

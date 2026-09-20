@@ -2,7 +2,9 @@
 
 A generic, store-type-agnostic point-of-sale (POS) desktop application, licensed to **Xeoscape**.
 
-Xeoscape supports multiple kinds of retail businesses (general retail, pharmacy, grocery, apparel, electronics, restaurant/cafe, B2B general retails, hardware, beauty, furniture, books, sports, jewelry, auto parts, pet supplies, convenience, liquor, flowers, toys) from a single codebase. Product fields, validation rules, and UI adapt automatically based on the active **store type** — no per-industry forks required.
+Xeoscape is a point-of-sale and shop ERP for **clothing retail**. Product fields, validation rules, and the UI are built around garments — type, colour, size, fabric, MRP vs selling price — and the app includes a barcode label generator for tagging stock.
+
+> Earlier versions shipped as a multi-industry build (pharmacy, grocery, restaurant and so on). That has been reduced to the Apparel / Fashion edition. The store-type mechanism itself is intact, so another edition can be reintroduced by adding entries to `config/store-types.json`, `config/product-fields.json` and `config/activation-keys.json` — no code changes.
 
 **Architecture:** a thin native **Tauri** (Rust) shell wraps an unchanged **Node.js/Express** backend, which persists data with the embedded **NeDB** database. The backend runs as a background "sidecar" process that the shell starts automatically and controls; you never interact with it directly.
 
@@ -161,17 +163,12 @@ Xeoscape/
 
 ### Store type
 
-Controls which product fields are shown/required. Change it via:
+This build ships a single store type, `apparel`, so there is nothing to switch between. Its
+product fields live in `config/product-fields.json` and cover garment type, department, size,
+colour, fabric, brand, MRP, selling price, HSN code and stock levels.
 
-- **UI**: Settings → Store Type
-- **API**:
-  ```bash
-  curl -X POST http://127.0.0.1:4173/api/settings/store-type \
-    -H "Content-Type: application/json" \
-    -d '{"storeType": "grocery"}'
-  ```
-
-Available store types live in `config/store-types.json`; their field sets in `config/product-fields.json`. Add a new store type by editing both — no code changes required.
+To add another edition, add matching entries to `config/store-types.json`,
+`config/product-fields.json` and `config/activation-keys.json` — no code changes required.
 
 ### App settings
 
@@ -187,29 +184,11 @@ Available store types live in `config/store-types.json`; their field sets in `co
 
 Activation is required before first use; login is required on every launch.
 
-### Activation keys (one per store type)
+### Activation key
 
 | Store Type | Activation Key |
 |---|---|
-| General Retail | `RETAIL-GENR-8F3K-2026` |
-| Pharmacy | `PHARM-RX7Q-4M2P-2026` |
-| Grocery / Supermarket | `GROCR-SUPM-9T5W-2026` |
 | Apparel / Fashion | `APRL-FASH-3K8N-2026` |
-| Electronics | `ELEC-TRON-6H4V-2026` |
-| Restaurant / Cafe | `REST-CAFE-1Q9Z-2026` |
-| B2B General Retails | `B2BG-RTLR-4K7M-2026` |
-| Hardware / Home Improvement | `HARD-WARE-2X5N-2026` |
-| Beauty / Cosmetics | `BEAU-TYCS-8P3R-2026` |
-| Furniture / Home Decor | `FURN-ITUR-6T9Q-2026` |
-| Books / Stationery / Office Supplies | `BOOK-STAT-1A4B-2026` |
-| Sports / Outdoors | `SPOR-TSOT-7C2D-2026` |
-| Jewelry / Accessories | `JEWE-LRY-3E8F-2026` |
-| Auto Parts / Automotive | `AUTO-PART-5G1H-2026` |
-| Pet Supplies | `PET-SUPP-9I6J-2026` |
-| Convenience Store | `CONV-ENST-2K4L-2026` |
-| Liquor / Wine Store | `LIQU-ORWS-8M3N-2026` |
-| Flowers / Gifts | `FLOW-ERSG-1O5P-2026` |
-| Toys / Games | `TOYS-GAME-7Q2R-2026` |
 
 A key both unlocks the app and sets the matching store type. These live in plain text in `config/activation-keys.json` — a licensing/edition gate, not cryptographic DRM. Change them before commercial distribution if real key management is needed.
 
@@ -222,6 +201,99 @@ Default account, auto-created on first run if no users exist:
 Change its password and add staff accounts from the Users screen once logged in.
 
 ---
+
+## Barcode Labels
+
+Garment tags are generated and printed from inside the app — no separate label software.
+
+### Generating barcodes
+
+Clothing stock often arrives with no scannable code at all. Two formats are available:
+
+| Format | Looks like | Use it for |
+|---|---|---|
+| **CODE128** | `TSHI-BLU-M-0042` | Readable in-store SKUs. A stock count or returns desk can read the tag without a scanner. |
+| **EAN-13** | `2000000000015` | A standard 13-digit retail barcode. Prints far narrower, so it fits small tags. |
+
+Allocation happens server-side (`POST /api/inventory/barcodes/generate`), because uniqueness
+can only be checked against the whole catalogue and two tills adding stock at once must not be
+handed the same number. In-store EAN-13 codes use the GS1 `20–29` restricted-distribution
+prefix, so they can never collide with a real manufacturer's barcode on branded stock.
+
+Codes are returned but **not** reserved — nothing is consumed until a product is saved with
+one, so an abandoned "New Product" form doesn't burn numbers.
+
+- **Per garment**: the 🏷 button on any product row, or **Generate** next to Barcode / SKU in
+  the product form.
+- **In bulk**: Settings → Barcode Labels.
+
+### Tagging stock in, and selling it
+
+Booking a delivery in and printing its tags is one step, deliberately. A printed barcode that
+isn't backed by a product scans to nothing at the till — it can never be sold and can never
+deduct stock. So **Add to stock & queue labels** does all of it at once:
+
+1. Allocates a barcode for the garment.
+2. Creates the product in inventory (type, colour, size, price).
+3. Books the quantity in as a **restock** movement, so the arrival shows in stock history.
+4. Queues that many labels to print.
+
+The quantity is both the stock booked in and the number of tags printed, which is what keeps
+the two in step — twelve tees arriving means twelve in stock and twelve tags.
+
+From then on the loop is automatic:
+
+```
+tag in 13 → print 13 tags → stick on garments
+                ↓
+        scan tag at the till
+                ↓
+     sale deducts stock: 13 → 10
+```
+
+Overselling is refused, and a return puts the garment back on the rail.
+
+**A repeat delivery restocks the existing line.** Eight more navy medium tees next month are
+the same product, so they reuse the existing barcode and the stock figure goes to 20 — rather
+than creating a second product whose totals have to be added up by hand. Matching is on
+garment type, colour and size, ignoring case and spacing. A change to any of those three is a
+genuinely different garment and gets its own barcode.
+
+Matching requires all three attributes. A partial match is deliberately *not* treated as the
+same garment: quietly merging a delivery into the wrong line is far more damaging than a
+duplicate someone can spot and merge later.
+
+**Reprints don't touch stock.** A torn tag is replaced from the catalogue search, or from the
+🏷 button on a product row. Neither changes the stock figure.
+
+### Printing
+
+**Settings → Barcode Labels** builds a batch. Garments can be added from the catalogue, or
+typed in directly — pick the garment type (T-Shirt, Cargo Pant, Half Pant…), enter the colour
+and size, and a barcode is allocated on the spot.
+
+The label carries the garment type, colour and size, plus an optional price, product name and
+store name. Print sizes:
+
+| Stock | Sizes |
+|---|---|
+| Thermal roll | 32×19, 38×25, 40×30, 50×25, 50×30, 58×40, 75×50 mm |
+| A4 label sheet | 65, 24, 21 or 14 per page |
+| Custom | Any size from 15×8 mm up to A4 |
+
+For part-used sheets, **Skip labels on first sheet** leaves the peeled-off positions blank so
+the sheet can be fed back through.
+
+### A note on label width
+
+Everything is laid out in millimetres and printed via a CSS `@page` rule matching the loaded
+stock. This matters: without a declared page size the browser assumes A4 and scales the label,
+which changes the printed bar width and stops the code scanning.
+
+For the same reason the app warns when a code is too long for the chosen stock. A readable SKU
+like `TSHI-BLU-M-0042` on a 38 mm tag prints bars about 0.167 mm wide — below the ~0.19 mm most
+handheld scanners resolve. It previews perfectly and then fails at the till. When that warning
+appears, use wider stock, switch to EAN-13, or shorten the code.
 
 ## Data, Backups & Migrations
 
@@ -255,7 +327,7 @@ Idempotent — safe to run multiple times.
 
 Both **Products** and **Categories** support bulk import via CSV, from their respective toolbar "Import CSV" buttons:
 
-1. Click **Download CSV Template** — the columns automatically match whatever the *current store type* requires (e.g. Pharmacy includes `expirationDate`/`minStock`/`supplier`; Electronics includes `warrantyMonths`).
+1. Click **Download CSV Template** — the columns match the apparel field set (`garmentType`, `size`, `color`, `material`, `mrp`, `hsnCode` and so on).
 2. Fill in the template and save it.
 3. Choose the file and click **Import**.
 
@@ -279,6 +351,8 @@ All endpoints are under `/api`.
 | GET | `/api/settings/store-types` | List available store types |
 | POST | `/api/settings/store-type` | Switch active store type |
 | GET | `/api/inventory/fields` | Current store type's product field schema |
+| POST | `/api/inventory/barcodes/generate` | Allocate unused barcode(s) for garment tagging |
+| POST | `/api/inventory/products/tag-in` | Tag a delivery and book it into stock in one step |
 | GET/POST | `/api/inventory/products` | List / create products |
 | PUT/DELETE | `/api/inventory/products/:id` | Update / delete a product |
 | GET | `/api/inventory/products/csv-template` | Download product CSV template |

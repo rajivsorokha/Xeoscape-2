@@ -2,7 +2,7 @@
   "name": "xeoscape",
   "productName": "Xeoscape",
   "version": "2.1.0",
-  "description": "Flexible point-of-sale / shop ERP supporting 19 store types from one codebase",
+  "description": "Apparel / Fashion point-of-sale and shop ERP, with barcode label generation and printing for clothing inventory",
   "license": "UNLICENSED",
   "licensee": "Xeoscape",
   "main": "server.js",
