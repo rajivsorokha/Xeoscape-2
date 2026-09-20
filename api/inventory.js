@@ -5,6 +5,8 @@
 const express = require('express');
 const multer = require('multer');
 const { buildTemplateCsv, parseCsvAgainstSchema } = require('../core/csv-helpers');
+const { generateBarcodes } = require('../core/barcode');
+const { tagInGarment } = require('../core/garment-intake');
 const { requirePermission } = require('./auth-middleware');
 
 const csvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }).single('file');
@@ -15,6 +17,46 @@ function buildInventoryRouter({ productManager, inventoryManager, storeConfig })
   // GET /api/inventory/fields -> field schema for current store type
   router.get('/fields', (req, res) => {
     res.json({ storeType: storeConfig.currentStoreType, fields: productManager.getFieldSchema() });
+  });
+
+  // POST /api/inventory/barcodes/generate -- allocates one or more
+  // barcodes that nothing in the catalogue is using yet, for tagging
+  // garments that arrived without a scannable code (unbranded stock,
+  // tailoring, or a supplier whose own tags won't scan).
+  //
+  // Allocation is server-side because uniqueness can only be checked
+  // against the catalogue -- see core/barcode.js. The codes are
+  // returned, not saved: nothing is reserved until the product itself
+  // is saved with one, which keeps an abandoned "New Product" form
+  // from burning numbers.
+  router.post('/barcodes/generate', requirePermission('perm_products'), async (req, res) => {
+    try {
+      const { symbology = 'EAN13', count = 1, attributes = {} } = req.body || {};
+      if (!['EAN13', 'CODE128'].includes(symbology)) {
+        return res.status(400).json({ error: 'Symbology must be EAN13 or CODE128.' });
+      }
+      const codes = await generateBarcodes({ productManager }, { symbology, count, attributes });
+      res.json({ symbology, codes });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // POST /api/inventory/products/tag-in -- a delivery arrived: tag it
+  // and book it into stock in one step.
+  //
+  // Printing a barcode on its own is only half the job. A tag that
+  // isn't backed by a product scans to nothing at the till, so it can
+  // never be sold and can never deduct stock. This endpoint allocates
+  // the code, creates (or restocks) the product, and records the
+  // arrival as a stock movement -- see core/garment-intake.js.
+  router.post('/products/tag-in', requirePermission('perm_products'), async (req, res) => {
+    try {
+      const result = await tagInGarment({ productManager, inventoryManager }, req.body || {});
+      res.status(result.created ? 201 : 200).json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message, details: err.details });
+    }
   });
 
   // GET /api/inventory/barcode-lookup/:code -- looks up a barcode
@@ -102,8 +144,8 @@ function buildInventoryRouter({ productManager, inventoryManager, storeConfig })
 
   // GET /api/inventory/products
   router.get('/products', async (req, res) => {
-    const { category, search } = req.query;
-    res.json(await productManager.list({ category, search }));
+    const { category, garmentType, search } = req.query;
+    res.json(await productManager.list({ category, garmentType, search }));
   });
 
   // GET /api/inventory/products/:id

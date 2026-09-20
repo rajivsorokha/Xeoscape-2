@@ -42,7 +42,7 @@ function buildAuthMiddleware({ dataDir }) {
  * Middleware factory: blocks the request unless the current user is
  * an admin (full access) or has the given permission key set true
  * (see PERMISSION_KEYS in api/users.js -- 'perm_products',
- * 'perm_categories', 'perm_transactions', 'perm_users',
+ * 'perm_transactions', 'perm_users',
  * 'perm_settings'). 401 if no user is identified at all, 403 if
  * they're identified but lack the permission.
  */

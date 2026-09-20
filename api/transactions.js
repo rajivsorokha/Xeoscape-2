@@ -86,7 +86,7 @@ function buildTransactionsRouter({ transactionManager, reportGenerator }) {
   });
 
   // GET /api/transactions/reports/outstanding-credit -- who currently
-  // owes money (B2B General Retail's Credit payment method). Not
+  // owes money (the Credit payment method). Not
   // date-ranged -- see core/report-generator.js#outstandingCredit for why.
   router.get('/reports/outstanding-credit', async (req, res) => {
     res.json(await reportGenerator.outstandingCredit());

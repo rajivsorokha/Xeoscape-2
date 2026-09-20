@@ -1,13 +1,15 @@
 // api/whatsapp.js
-// WhatsApp credit-reminder settings and send actions. B2B-only, same
-// as the due/credit payment feature itself (see
-// core/transaction-manager.js).
+// WhatsApp credit-reminder settings and send actions. Only meaningful
+// when credit / due sales are switched on for the store (Settings ->
+// Store Profile -> "Allow credit / due sales"), same gate the
+// due/credit payment feature itself uses -- see
+// core/transaction-manager.js.
 
 const express = require('express');
 const { requirePermission } = require('./auth-middleware');
 const { sendWhatsAppReminder } = require('../core/whatsapp-sender');
 
-function buildWhatsAppRouter({ whatsappSettings, customersDb, storeConfig }) {
+function buildWhatsAppRouter({ whatsappSettings, customersDb, storeProfile }) {
   const router = express.Router();
 
   function redact(settings) {
@@ -24,15 +26,18 @@ function buildWhatsAppRouter({ whatsappSettings, customersDb, storeConfig }) {
     res.json(redact(updated));
   });
 
-  function requireB2B(req, res, next) {
-    if (storeConfig.currentStoreType !== 'b2bGeneralRetail') {
-      return res.status(400).json({ error: 'WhatsApp credit reminders are only available for B2B General Retail.' });
+  async function requireCreditSales(req, res, next) {
+    const profile = await storeProfile.get();
+    if (!profile.creditSalesEnabled) {
+      return res.status(400).json({
+        error: 'WhatsApp payment reminders need credit / due sales turned on (Settings \u2192 Store Profile).'
+      });
     }
     next();
   }
 
   // POST /api/whatsapp/send-reminder/:customerId
-  router.post('/send-reminder/:customerId', requirePermission('perm_transactions'), requireB2B, async (req, res) => {
+  router.post('/send-reminder/:customerId', requirePermission('perm_transactions'), requireCreditSales, async (req, res) => {
     try {
       const settings = await whatsappSettings.get();
       if (!settings.enabled) {
@@ -60,7 +65,7 @@ function buildWhatsAppRouter({ whatsappSettings, customersDb, storeConfig }) {
   // with an outstanding balance. Best-effort: one failure doesn't
   // stop the rest, and a per-customer result list is returned so the
   // caller can see exactly who did/didn't get a reminder.
-  router.post('/send-reminders-bulk', requirePermission('perm_transactions'), requireB2B, async (req, res) => {
+  router.post('/send-reminders-bulk', requirePermission('perm_transactions'), requireCreditSales, async (req, res) => {
     const settings = await whatsappSettings.get();
     if (!settings.enabled) {
       return res.status(400).json({ error: 'WhatsApp reminders are turned off. Enable them in Settings \u2192 WhatsApp Reminders.' });

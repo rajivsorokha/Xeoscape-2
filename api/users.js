@@ -10,7 +10,7 @@ const { randomUUID } = require('crypto');
 const SqliteStore = require('../core/sqlite-store');
 const { requirePermission } = require('./auth-middleware');
 
-const PERMISSION_KEYS = ['perm_products', 'perm_categories', 'perm_transactions', 'perm_users', 'perm_settings'];
+const PERMISSION_KEYS = ['perm_products', 'perm_transactions', 'perm_users', 'perm_settings'];
 
 function hashPassword(password, salt) {
   return crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
@@ -38,7 +38,7 @@ async function ensureDefaultAdmin(dataDir) {
     displayName: 'Administrator',
     role: 'admin',
     permissions: normalizePermissions({
-      perm_products: true, perm_categories: true, perm_transactions: true, perm_users: true, perm_settings: true
+      perm_products: true, perm_transactions: true, perm_users: true, perm_settings: true
     }),
     passwordHash: hashPassword('admin', salt),
     salt,
