@@ -1,7 +1,8 @@
-[2026-08-02T08:14:36.316Z] INFO: Logging initialized. Log file: C:\Users\kuno\Desktop\vote\workspace (2)\workspace\data\logs\app.log
-[2026-08-02T08:14:36.429Z] INFO: Migrated 1 record(s) from legacy users.json
-[2026-08-02T08:14:36.524Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
-[2026-08-02T08:14:36.526Z] INFO: Migrated 78 record(s) from legacy products.json
-[2026-08-02T08:14:36.529Z] INFO: Migrated 26 record(s) from legacy categories.json
-[2026-09-19T02:23:52.145Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Xeoscape-2-full-update\data\logs\app.log
-[2026-09-19T02:23:52.206Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-09-19T03:45:04.797Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Fresh\Xeoscape-2-full-update\Xeoscape-2-apparel-barcode-update\Xeoscape-2-full-update\data\logs\app.log
+[2026-09-19T03:45:04.927Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-09-20T01:00:01.991Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
+[2026-09-20T01:00:02.050Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-09-20T01:11:48.742Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
+[2026-09-20T01:11:48.798Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-09-20T01:28:37.617Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
+[2026-09-20T01:28:37.680Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
