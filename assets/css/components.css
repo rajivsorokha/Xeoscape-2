@@ -486,3 +486,49 @@
 /* Quick quantity presets on the barcode label quantity fields. */
 .label-qty-presets { display: flex; gap: 0.3rem; margin-top: 0.35rem; flex-wrap: wrap; }
 .label-qty-presets .btn { padding: 0.15rem 0.55rem; font-size: 0.8rem; }
+
+/* --- Printing a receipt / order preview -------------------------- */
+/* Receipt printing (assets/js/modules/checkout/receipt.js) calls
+   window.print() directly on the main app window rather than opening
+   a separate window or iframe, since the receipt is already shown in
+   a modal on top of the app. Without rules here, printing would
+   include the whole app shell (header, nav buttons) and the modal's
+   own chrome (title bar, Print/WhatsApp/Cancel buttons) around and
+   behind the receipt. This hides everything on the page except the
+   modal's content when a print job actually starts, showing only the
+   receipt itself. */
+@media print {
+  #app-root,
+  #toast-container {
+    display: none !important;
+  }
+  .modal-overlay {
+    position: static !important;
+    inset: auto !important;
+    background: none !important;
+    display: block !important;
+    padding: 0 !important;
+  }
+  .modal-dialog {
+    box-shadow: none !important;
+    border: none !important;
+    max-width: none !important;
+    width: auto !important;
+    margin: 0 !important;
+    /* .modal-dialog is normally capped at 88vh with scroll for a tall
+       modal on screen -- printing doesn't understand that scrolling,
+       so without this a long receipt or a big garment table would be
+       cut off after one screen's height instead of flowing across as
+       many printed pages as it needs. */
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .modal-header,
+  .modal-actions,
+  .modal-close {
+    display: none !important;
+  }
+  .modal-body {
+    padding: 0 !important;
+  }
+}

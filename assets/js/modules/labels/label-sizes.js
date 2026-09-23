@@ -28,6 +28,12 @@
  * @property {number} [marginLeftMm]   sheet only: unprintable left edge
  * @property {number} [gapXMm]         sheet only: gutter between columns
  * @property {number} [gapYMm]         sheet only: gutter between rows
+ * @property {number} [defaultAcross]  roll only: how many labels this
+ *   stock is normally sold/printed side by side (a "2UP"/"3UP" roll).
+ *   Applied to the Labels-across control when this size is picked, so
+ *   choosing the preset is enough -- see syncSizeDependentControls()
+ *   in settings/barcode-labels.js and the sizeSelect handler in
+ *   labels/label-quick-print.js.
  */
 
 /** @type {LabelSize[]} */
@@ -60,6 +66,22 @@ export const LABEL_SIZES = [
     kind: 'roll',
     widthMm: 50,
     heightMm: 25
+  },
+  {
+    // The precise metric conversion of "2 x 1 inch" -- not the same
+    // as the roll-50x25 entry above, which is a separately-sold,
+    // genuinely rounded-to-50mm stock. Sold near-universally as a
+    // "2UP" roll (two labels printed side by side before the roll
+    // feeds to the next pair), so it defaults "Labels across" to 2 --
+    // see defaultAcross below and how syncSizeDependentControls() /
+    // refreshPreview() apply it in settings/barcode-labels.js and
+    // labels/label-quick-print.js.
+    id: 'roll-50.8x25.4-2up',
+    label: 'Roll \u2014 2 \u00d7 1 in / 50.8 \u00d7 25.4 mm, 2UP (common generic chromo roll)',
+    kind: 'roll',
+    widthMm: 50.8,
+    heightMm: 25.4,
+    defaultAcross: 2
   },
   {
     id: 'roll-50x30',

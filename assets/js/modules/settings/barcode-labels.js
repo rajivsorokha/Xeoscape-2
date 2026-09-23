@@ -53,6 +53,8 @@ export async function mountBarcodeLabels(container) {
     // How many labels sit side by side on the roll before it feeds to
     // the next row -- 1 is the old single-lane behaviour.
     labelsAcross: 1,
+    // 'none' | 'cw' | 'ccw' -- see rotateSelect below.
+    rotate: 'none',
     content: {
       showStoreName: false,
       showGarmentType: true,
@@ -396,9 +398,32 @@ export async function mountBarcodeLabels(container) {
     acrossSelect
   ]);
 
+  // Some printers/drivers rotate every printout 90 degrees relative to
+  // how the stock is actually loaded -- and neither Portrait nor
+  // Landscape in the print dialog changes that, since it's the driver
+  // mapping the page onto the roll in a fixed way, not a page-content
+  // setting. This pre-rotates the content the opposite way so the two
+  // cancel out; see the `rotate` param on buildLabelSheetHtml for the
+  // full explanation. Left on "Off" for everyone whose printer already
+  // prints right-side up -- most do.
+  const rotateSelect = el('select', {}, [
+    el('option', { value: 'none' }, 'Off (default)'),
+    el('option', { value: 'cw' }, 'Rotate 90\u00b0 (try this first)'),
+    el('option', { value: 'ccw' }, 'Rotate 90\u00b0 the other way')
+  ]);
+  rotateSelect.value = state.rotate;
+  const rotateRow = el('div', { class: 'form-field' }, [
+    el('label', {
+      title: 'If labels come out sideways and the print dialog\u2019s Portrait/Landscape option doesn\u2019t fix it, '
+        + 'try this instead. Print one test label after each change.'
+    }, 'My printer prints labels sideways'),
+    rotateSelect
+  ]);
+
   function syncSizeDependentControls() {
     customRow.style.display = state.sizeId === 'custom' ? 'flex' : 'none';
-    const isSheet = state.sizeId !== 'custom' && (findLabelSize(state.sizeId) || {}).kind === 'sheet';
+    const size = state.sizeId !== 'custom' ? findLabelSize(state.sizeId) : null;
+    const isSheet = size?.kind === 'sheet';
     skipRow.style.display = isSheet ? 'block' : 'none';
     // "Labels across" is a roll-stock concept -- a sheet already has
     // its own fixed column count.
@@ -410,6 +435,13 @@ export async function mountBarcodeLabels(container) {
     if (isSheet) {
       state.labelsAcross = 1;
       acrossSelect.value = '1';
+    } else if (size?.defaultAcross) {
+      // Stock that's normally sold/printed multiple-up (a "2UP" roll,
+      // say) -- so picking the preset is enough on its own, rather
+      // than also having to separately remember to set "Labels
+      // across" to match.
+      state.labelsAcross = size.defaultAcross;
+      acrossSelect.value = String(size.defaultAcross);
     }
   }
 
@@ -433,6 +465,10 @@ export async function mountBarcodeLabels(container) {
   acrossSelect.addEventListener('change', () => {
     state.labelsAcross = Math.max(1, Math.floor(Number(acrossSelect.value)) || 1);
     updateSummary();
+    updatePreview();
+  });
+  rotateSelect.addEventListener('change', () => {
+    state.rotate = rotateSelect.value;
     updatePreview();
   });
 
@@ -533,7 +569,7 @@ export async function mountBarcodeLabels(container) {
       storeName,
       currencySymbol,
       symbology: state.symbology
-    }, 0, state.labelsAcross);
+    }, 0, state.labelsAcross, state.rotate);
 
     previewFrame.srcdoc = html;
     updateScanWarning(size, queue.length ? queue : items);
@@ -572,7 +608,7 @@ export async function mountBarcodeLabels(container) {
       storeName,
       currencySymbol,
       symbology: state.symbology
-    }, state.skipCount, state.labelsAcross);
+    }, state.skipCount, state.labelsAcross, state.rotate);
 
     openPrintWindow(html);
     notification.success(`Sent ${items.length} label${items.length === 1 ? '' : 's'} to the printer.`);
@@ -615,6 +651,7 @@ export async function mountBarcodeLabels(container) {
       el('div', { class: 'form-field' }, [el('label', {}, 'Label stock'), sizeSelectEl]),
       customRow,
       acrossRow,
+      rotateRow,
       skipRow,
 
       el('h4', {}, 'Barcode'),

@@ -24,24 +24,36 @@ function escapeHtml(text) {
 }
 
 // Minimal copy of the .receipt* rules from assets/css/components.css,
-// inlined here rather than shared, because the printed copy goes
-// through a standalone iframe document (see shared/print-utils.js)
-// that never loads the app's own stylesheet.
+// inlined here rather than shared, because the printed copy is spliced
+// into the app's own page and printed on its own (see
+// shared/print-utils.js) rather than loading the app's full
+// stylesheet.
+//
+// Sized for an 80mm thermal receipt roll -- the common width for
+// retail POS receipt printers (the other common size is 58mm; change
+// RECEIPT_PAPER_WIDTH_MM below if this shop's printer uses that
+// instead). Page height is left as "auto" since thermal rolls are
+// continuous-feed, not cut to a fixed page length -- the printer just
+// feeds and cuts after however much the receipt actually needs.
+const RECEIPT_PAPER_WIDTH_MM = 80;
 const RECEIPT_PRINT_CSS = `
   * { box-sizing: border-box; }
-  body { font-family: 'Courier New', monospace; margin: 0; padding: 8mm; color: #36404a; }
-  .receipt-shop-header { text-align: center; margin-bottom: 0.5rem; }
-  .receipt-logo { max-width: 100%; max-height: 60px; margin: 0 auto 0.3rem; display: block; }
-  .receipt-store-name { font-weight: 700; font-size: 1.05rem; }
-  .receipt-tagline { font-size: 0.78rem; color: #75798b; margin-bottom: 0.15rem; }
-  .receipt-address { font-size: 0.72rem; color: #75798b; line-height: 1.3; }
-  .receipt-header { text-align: center; margin-bottom: 0.5rem; }
+  html, body { margin: 0; padding: 0; width: ${RECEIPT_PAPER_WIDTH_MM}mm; }
+  body { font-family: 'Courier New', monospace; color: #36404a; }
+  .receipt { width: 100%; padding: 3mm 4mm; }
+  .receipt-shop-header { text-align: center; margin-bottom: 0.4rem; }
+  .receipt-logo { max-width: 100%; max-height: 40px; margin: 0 auto 0.25rem; display: block; }
+  .receipt-store-name { font-weight: 700; font-size: 0.95rem; }
+  .receipt-tagline { font-size: 0.68rem; color: #75798b; margin-bottom: 0.15rem; }
+  .receipt-address { font-size: 0.62rem; color: #75798b; line-height: 1.3; }
+  .receipt-header { text-align: center; margin-bottom: 0.4rem; font-size: 0.72rem; }
   .receipt-header div:first-child { font-weight: 700; }
-  .receipt-line, .receipt-totals div { display: flex; justify-content: space-between; gap: 1rem; }
-  .receipt-total-line { font-weight: 700; border-top: 1px dashed #5fbeaa; margin-top: 0.4rem; padding-top: 0.4rem; }
-  .receipt-payment { margin-top: 0.4rem; }
-  .receipt-footer { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px dashed #dbdde3; text-align: center; font-size: 0.8rem; color: #75798b; }
-  @page { margin: 0; }
+  .receipt-line, .receipt-totals div { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.72rem; }
+  .receipt-line span:first-child { word-break: break-word; }
+  .receipt-total-line { font-weight: 700; font-size: 0.85rem; border-top: 1px dashed #5fbeaa; margin-top: 0.3rem; padding-top: 0.3rem; }
+  .receipt-payment { margin-top: 0.3rem; font-size: 0.72rem; }
+  .receipt-footer { margin-top: 0.5rem; padding-top: 0.4rem; border-top: 1px dashed #dbdde3; text-align: center; font-size: 0.65rem; color: #75798b; }
+  @page { size: ${RECEIPT_PAPER_WIDTH_MM}mm auto; margin: 0; }
 `;
 
 function receiptHeaderHtml(profile) {
@@ -60,9 +72,9 @@ function receiptHeaderHtml(profile) {
 /**
  * Builds a full, standalone HTML document for a paid receipt -- built
  * fresh from the transaction data (rather than serializing the modal's
- * DOM) so it carries its own styles and prints correctly through the
- * hidden-iframe route in shared/print-utils.js, independent of the
- * app's own stylesheet or whatever else is currently on screen.
+ * DOM) so it carries its own styles and prints correctly via
+ * shared/print-utils.js, independent of the app's own stylesheet or
+ * whatever else is currently on screen.
  */
 function buildReceiptPrintHtml(transaction) {
   const symbol = settingsStore.getCurrencySymbol();
@@ -178,15 +190,12 @@ export function renderReceipt(transaction) {
         label: 'Print',
         className: 'btn-secondary',
         closeOnClick: false,
-        // Printed via a hidden iframe (see shared/print-utils.js)
-        // rather than window.print() on the main window: printing the
-        // main window directly had two problems -- it printed
-        // whatever else happened to be on screen along with the
-        // receipt (the app has no @media print rules to hide the rest
-        // of the UI), and calling it right after the payment modal
-        // closes (a rapid transition) was linked to an app-crash-on-
-        // print report. Building a standalone document and printing
-        // that instead sidesteps both.
+        // See shared/print-utils.js for how printing here avoids both
+        // the popup-blocking issue the old window.open()-based label
+        // printing had, and printing the wrong content (the app has no
+        // @media print rules of its own, so a bare window.print() on
+        // the main window would print whatever else happened to be on
+        // screen along with the receipt).
         onClick: () => printHtml(buildReceiptPrintHtml(transaction)).catch((err) => notification.error(`Print failed: ${err.message}`))
       },
       {

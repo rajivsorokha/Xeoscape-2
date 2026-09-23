@@ -62,6 +62,16 @@ export function openQuickLabelPrint(product) {
     el('option', { value: String(n) }, n === 1 ? '1 (single lane)' : `${n} across`)
   )));
 
+  // Some printers/drivers rotate every printout 90 degrees relative to
+  // how the stock is actually loaded, and neither Portrait nor
+  // Landscape in the print dialog fixes that -- see the `rotate` param
+  // on buildLabelSheetHtml (label-sheet.js) for the full explanation.
+  const rotateSelect = el('select', {}, [
+    el('option', { value: 'none' }, 'Off (default)'),
+    el('option', { value: 'cw' }, 'Rotate 90\u00b0 (try this first)'),
+    el('option', { value: 'ccw' }, 'Rotate 90\u00b0 the other way')
+  ]);
+
   const symbologySelect = el('select', {}, [
     el('option', { value: 'CODE128' }, 'CODE128'),
     el('option', { value: 'EAN13' }, 'EAN-13')
@@ -115,7 +125,7 @@ export function openQuickLabelPrint(product) {
     try {
       const size = currentSize();
       const labelsAcross = size.kind === 'sheet' ? 1 : Math.max(1, Number(acrossSelect.value) || 1);
-      previewFrame.srcdoc = buildLabelSheetHtml([labelItem(1)], size, contentOptions(), 0, labelsAcross);
+      previewFrame.srcdoc = buildLabelSheetHtml([labelItem(1)], size, contentOptions(), 0, labelsAcross, rotateSelect.value);
 
       // Warn if this code is too long for the chosen stock to print
       // scannable bars -- see MIN_X_DIMENSION_MM in label-sheet.js.
@@ -138,17 +148,31 @@ export function openQuickLabelPrint(product) {
       'Labels across'),
     acrossSelect
   ]);
+  const rotateRow = el('div', { class: 'form-field' }, [
+    el('label', {
+      title: 'If labels come out sideways and the print dialog\u2019s Portrait/Landscape option doesn\u2019t fix it, '
+        + 'try this instead. Print one test label after each change.'
+    }, 'My printer prints labels sideways'),
+    rotateSelect
+  ]);
 
   sizeSelect.addEventListener('change', () => {
-    const isSheet = sizeSelect.value !== 'custom' && (findLabelSize(sizeSelect.value) || {}).kind === 'sheet';
+    const size = sizeSelect.value !== 'custom' ? findLabelSize(sizeSelect.value) : null;
+    const isSheet = size?.kind === 'sheet';
     customRow.style.display = sizeSelect.value === 'custom' ? 'flex' : 'none';
     // "Labels across" is a roll-stock concept -- a sheet already has
     // its own fixed column count.
     acrossRow.style.display = isSheet ? 'none' : 'block';
-    if (isSheet) acrossSelect.value = '1';
+    if (isSheet) {
+      acrossSelect.value = '1';
+    } else if (size?.defaultAcross) {
+      // Stock normally sold/printed multiple-up (a "2UP" roll) --
+      // picking the preset is enough on its own then.
+      acrossSelect.value = String(size.defaultAcross);
+    }
     refreshPreview();
   });
-  [customWidth, customHeight, symbologySelect, priceBox, acrossSelect].forEach((control) => {
+  [customWidth, customHeight, symbologySelect, priceBox, acrossSelect, rotateSelect].forEach((control) => {
     control.addEventListener('change', refreshPreview);
   });
 
@@ -164,6 +188,7 @@ export function openQuickLabelPrint(product) {
     el('div', { class: 'form-field' }, [el('label', {}, 'Printing size'), sizeSelect]),
     customRow,
     acrossRow,
+    rotateRow,
     el('div', { class: 'form-field' }, [el('label', {}, 'Barcode type'), symbologySelect]),
     el('label', { class: 'label-toggle' }, [priceBox, ' Show price on label']),
     el('h4', {}, 'Preview'),
@@ -193,7 +218,7 @@ export function openQuickLabelPrint(product) {
           }
           const items = Array.from({ length: quantity }, () => labelItem(1));
           const labelsAcross = size.kind === 'sheet' ? 1 : Math.max(1, Number(acrossSelect.value) || 1);
-          openPrintWindow(buildLabelSheetHtml(items, size, contentOptions(), 0, labelsAcross));
+          openPrintWindow(buildLabelSheetHtml(items, size, contentOptions(), 0, labelsAcross, rotateSelect.value));
           notification.success(`Sent ${quantity} label${quantity === 1 ? '' : 's'} to the printer.`);
           modalManager.close();
         }

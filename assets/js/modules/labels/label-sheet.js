@@ -213,21 +213,59 @@ export function expandByQuantity(items) {
  *   in the dropdown, just laid out in pairs (or triples, etc.) across
  *   the web. Ignored for sheet stock, which already defines its own
  *   column count.
+ * @param {'none'|'cw'|'ccw'} [rotate] - some label printers/drivers
+ *   rotate every printout 90 degrees relative to how the stock is
+ *   actually loaded, and there's no page-content setting (the
+ *   browser's own Portrait/Landscape included) that changes that --
+ *   it's the driver mapping the declared page size onto the physical
+ *   roll in a fixed way. When neither Portrait nor Landscape in the
+ *   print dialog fixes a sideways printout, this pre-rotates the
+ *   *content* the opposite way and swaps the declared page dimensions
+ *   to match, so the two rotations cancel out on paper. Try 'cw'
+ *   first; if that comes out upside-down/mirrored instead of fixed,
+ *   the printer's rotation is the other direction -- switch to 'ccw'.
  * @returns {string} a full HTML document
  */
-export function buildLabelSheetHtml(items, size, options = {}, skipCount = 0, labelsAcross = 1) {
+export function buildLabelSheetHtml(items, size, options = {}, skipCount = 0, labelsAcross = 1, rotate = 'none') {
   const isSheet = size.kind === 'sheet';
   // A gap between labels sitting side by side on the same roll row --
   // without one, adjacent barcodes' quiet zones touch and a scanner
   // can't tell where one code ends and the next begins.
   const rowGapMm = 2;
   const across = isSheet ? 1 : Math.max(1, Math.floor(labelsAcross) || 1);
+  const doRotate = rotate === 'cw' || rotate === 'ccw';
 
-  const pageRule = isSheet
-    ? `@page { size: ${size.pageWidthMm}mm ${size.pageHeightMm}mm; margin: 0; }`
+  // The physical size of one whole printed page/row *before* any
+  // compensating rotation -- i.e. what the label stock actually is.
+  const unitWidthMm = isSheet
+    ? size.pageWidthMm
     : across > 1
-      ? `@page { size: ${(size.widthMm * across + rowGapMm * (across - 1)).toFixed(2)}mm ${size.heightMm}mm; margin: 0; }`
-      : `@page { size: ${size.widthMm}mm ${size.heightMm}mm; margin: 0; }`;
+      ? (size.widthMm * across + rowGapMm * (across - 1)).toFixed(2)
+      : size.widthMm;
+  const unitHeightMm = isSheet ? size.pageHeightMm : size.heightMm;
+
+  const pageRule = doRotate
+    ? `@page { size: ${unitHeightMm}mm ${unitWidthMm}mm; margin: 0; }`
+    : `@page { size: ${unitWidthMm}mm ${unitHeightMm}mm; margin: 0; }`;
+
+  // Wraps one already-built page/row unit (a .sheet, .roll-row, or
+  // bare .label -- whichever is the top-level printed block for this
+  // stock) so it prints rotated. The OUTER div gets the swapped
+  // dimensions and carries pagination (page-break-after); the INNER
+  // div keeps the unit's real, unrotated size and is what's actually
+  // rotated, anchored at its own top-left corner so the swap comes out
+  // exactly filling the outer box rather than spilling past it.
+  function rotateWrap(unitHtml, isLast) {
+    if (!doRotate) return unitHtml;
+    const transform = rotate === 'cw'
+      ? 'rotate(90deg) translateY(-100%)'
+      : 'rotate(-90deg) translateX(-100%)';
+    const breakCss = isLast ? '' : 'page-break-after:always;break-after:page;';
+    return `<div class="page-rotate-outer" style="width:${unitHeightMm}mm;height:${unitWidthMm}mm;`
+      + `position:relative;overflow:hidden;${breakCss}">`
+      + `<div style="width:${unitWidthMm}mm;height:${unitHeightMm}mm;`
+      + `transform-origin:top left;transform:${transform};">${unitHtml}</div></div>`;
+  }
 
   let bodyHtml;
 
@@ -246,7 +284,7 @@ export function buildLabelSheetHtml(items, size, options = {}, skipCount = 0, la
           ? `<div class="label">${renderLabel(item, size, options)}</div>`
           : '<div class="label label-blank"></div>'
       )).join('');
-      pages.push(`<div class="sheet">${cellsHtml}</div>`);
+      pages.push(rotateWrap(`<div class="sheet">${cellsHtml}</div>`, pageIndex === pageCount - 1));
     }
     bodyHtml = pages.join('');
   } else {
@@ -266,11 +304,18 @@ export function buildLabelSheetHtml(items, size, options = {}, skipCount = 0, la
           ? `<div class="label">${renderLabel(item, size, options)}</div>`
           : '<div class="label label-blank"></div>'
       )).join('');
-      rows.push(across > 1 ? `<div class="roll-row">${rowHtml}</div>` : rowHtml);
+      const isLastRow = (i + across) >= items.length;
+      const unitHtml = across > 1 ? `<div class="roll-row">${rowHtml}</div>` : rowHtml;
+      rows.push(doRotate ? rotateWrap(unitHtml, isLastRow) : unitHtml);
     }
     bodyHtml = rows.join('');
   }
 
+  // When rotating, pagination moves to the wrapper this function just
+  // added (.page-rotate-outer, with its own inline page-break style
+  // per unit above) instead of .sheet/.roll-row/.label -- those keep
+  // their normal, unrotated CSS below exactly as before, just nested
+  // one level deeper now.
   const sheetCss = isSheet
     ? `
     .sheet {
@@ -283,10 +328,9 @@ export function buildLabelSheetHtml(items, size, options = {}, skipCount = 0, la
       grid-template-rows: repeat(${size.rows}, ${size.heightMm}mm);
       column-gap: ${size.gapXMm}mm;
       row-gap: ${size.gapYMm}mm;
-      page-break-after: always;
-      break-after: page;
+      ${doRotate ? '' : 'page-break-after: always; break-after: page;'}
     }
-    .sheet:last-child { page-break-after: auto; break-after: auto; }
+    ${doRotate ? '' : '.sheet:last-child { page-break-after: auto; break-after: auto; }'}
     .label { width: ${size.widthMm}mm; height: ${size.heightMm}mm; }
     `
     : `
@@ -298,19 +342,17 @@ export function buildLabelSheetHtml(items, size, options = {}, skipCount = 0, la
     .roll-row {
       display: flex;
       gap: ${rowGapMm}mm;
-      width: ${(size.widthMm * across + rowGapMm * (across - 1)).toFixed(2)}mm;
+      width: ${unitWidthMm}mm;
       height: ${size.heightMm}mm;
-      page-break-after: always;
-      break-after: page;
+      ${doRotate ? '' : 'page-break-after: always; break-after: page;'}
     }
-    .roll-row:last-child { page-break-after: auto; break-after: auto; }
+    ${doRotate ? '' : '.roll-row:last-child { page-break-after: auto; break-after: auto; }'}
     .roll-row .label { flex: 0 0 ${size.widthMm}mm; }
     ` : `
     .label {
-      page-break-after: always;
-      break-after: page;
+      ${doRotate ? '' : 'page-break-after: always; break-after: page;'}
     }
-    .label:last-child { page-break-after: auto; break-after: auto; }
+    ${doRotate ? '' : '.label:last-child { page-break-after: auto; break-after: auto; }'}
     `}
     `;
 
