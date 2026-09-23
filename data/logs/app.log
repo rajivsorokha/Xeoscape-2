@@ -6,3 +6,14 @@
 [2026-09-20T01:11:48.798Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
 [2026-09-20T01:28:37.617Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
 [2026-09-20T01:28:37.680Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-09-20T11:33:56.166Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
+[2026-09-20T11:33:56.217Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-09-20T13:35:01.903Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
+[2026-09-20T13:35:01.963Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-09-20T13:44:51.557Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
+[2026-09-20T13:44:51.614Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-09-21T04:57:27.215Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
+[2026-09-21T04:57:27.379Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-09-22T02:54:28.112Z] WARN: [2026-09-22T02:54:28.094Z] [PID: 19520] [32m[NODE-CRON][32m [33m[WARN][0m missed execution at Tue Sep 22 2026 02:30:00 GMT+0530 (India Standard Time)! Possible blocking IO or high CPU user at the same process used by node-cron.
+[2026-09-22T02:54:28.152Z] WARN: [2026-09-22T02:54:28.146Z] [PID: 19520] [32m[NODE-CRON][32m [33m[WARN][0m missed execution at Tue Sep 22 2026 08:00:00 GMT+0530 (India Standard Time)! Possible blocking IO or high CPU user at the same process used by node-cron.
+[2026-09-22T21:01:00.473Z] WARN: [2026-09-22T21:01:00.433Z] [PID: 19520] [32m[NODE-CRON][32m [33m[WARN][0m missed execution at Wed Sep 23 2026 02:30:00 GMT+0530 (India Standard Time)! Possible blocking IO or high CPU user at the same process used by node-cron.
