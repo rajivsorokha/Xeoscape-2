@@ -1,0 +1,974 @@
+diff --git a/assets/js/modules/cart/cart-ui.js b/assets/js/modules/cart/cart-ui.js
+index 5b5a5c9..7bf0851 100644
+--- a/assets/js/modules/cart/cart-ui.js
++++ b/assets/js/modules/cart/cart-ui.js
+@@ -12,6 +12,7 @@ import { openCustomerForm } from '../customers/customer-form.js';
+ import { openWhatsApp } from '../../shared/whatsapp.js';
+ import { promptModal } from '../../ui/prompt.js';
+ import notification from '../../ui/notification.js';
++import { setScanHandler } from '../../shared/barcode-scanner.js';
+ 
+ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
+   let discount = 0;
+@@ -35,15 +36,25 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
+   customerSelect.addEventListener('change', (e) => { selectedCustomerId = e.target.value; });
+ 
+   // --- Barcode / SKU scan row ---
++  // Also fed by the USB scanner (e.g. Dcode DC7132): it's a plain HID
++  // keyboard-wedge device, so pulling the trigger just "types" the
++  // code into whatever has focus, then Enter. barcode-scanner.js
++  // recognizes that fast keystroke burst globally -- so a scan is
++  // added to the cart even if the cashier's cursor is somewhere else
++  // entirely (a quantity box, the discount field, nowhere) -- and
++  // routes it here through the same addByBarcode() path a manually
++  // typed code + Enter in this box would use, so both behave
++  // identically and nothing can double-add an item.
+   const barcodeInput = el('input', { type: 'text', placeholder: 'Scan barcode or type the number then hit enter' });
+-  async function addByBarcode() {
+-    const code = barcodeInput.value.trim();
++  async function addByBarcode(code) {
++    code = (code ?? barcodeInput.value).trim();
+     if (!code) return;
+     try {
+       const matches = await apiClient.get(`/inventory/products?search=${encodeURIComponent(code)}`);
+       const exact = matches.find((p) => p.sku === code) || matches[0];
+       if (!exact) {
+         notification.error(`No product found for "${code}"`);
++        barcodeInput.value = '';
+         return;
+       }
+       cartManager.add(exact, 1);
+@@ -56,6 +67,15 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
+     onSubmit: (e) => { e.preventDefault(); addByBarcode(); }
+   }, [barcodeInput, el('button', { class: 'btn btn-primary btn-icon', type: 'submit' }, '\u2713')]);
+ 
++  // While the POS screen is up, any scan (from anywhere -- see above)
++  // adds to this cart. Cleared the moment the app navigates away from
++  // 'pos', so a scan on the Transactions or Settings screen doesn't
++  // silently add something to a cart that's out of sight.
++  setScanHandler((code) => addByBarcode(code));
++  cartManager.eventBus?.on('route:changed', ({ routeId }) => {
++    if (routeId !== 'pos') setScanHandler(null);
++  });
++
+   // --- Cart table ---
+   const listEl = el('div', { class: 'cart-lines' });
+   const clearAllBtn = el('button', { class: 'btn btn-sm btn-secondary', onClick: () => cartManager.clear() }, '\u2715');
+diff --git a/assets/js/modules/checkout/receipt.js b/assets/js/modules/checkout/receipt.js
+index 0d28a44..0e9f9f3 100644
+--- a/assets/js/modules/checkout/receipt.js
++++ b/assets/js/modules/checkout/receipt.js
+@@ -15,6 +15,115 @@ import apiClient from '../../shared/api-client.js';
+ import { openWhatsApp } from '../../shared/whatsapp.js';
+ import { promptModal } from '../../ui/prompt.js';
+ import notification from '../../ui/notification.js';
++import { printHtml } from '../../shared/print-utils.js';
++
++function escapeHtml(text) {
++  return String(text ?? '').replace(/[&<>"']/g, (ch) => ({
++    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
++  }[ch]));
++}
++
++// Minimal copy of the .receipt* rules from assets/css/components.css,
++// inlined here rather than shared, because the printed copy goes
++// through a standalone iframe document (see shared/print-utils.js)
++// that never loads the app's own stylesheet.
++const RECEIPT_PRINT_CSS = `
++  * { box-sizing: border-box; }
++  body { font-family: 'Courier New', monospace; margin: 0; padding: 8mm; color: #36404a; }
++  .receipt-shop-header { text-align: center; margin-bottom: 0.5rem; }
++  .receipt-logo { max-width: 100%; max-height: 60px; margin: 0 auto 0.3rem; display: block; }
++  .receipt-store-name { font-weight: 700; font-size: 1.05rem; }
++  .receipt-tagline { font-size: 0.78rem; color: #75798b; margin-bottom: 0.15rem; }
++  .receipt-address { font-size: 0.72rem; color: #75798b; line-height: 1.3; }
++  .receipt-header { text-align: center; margin-bottom: 0.5rem; }
++  .receipt-header div:first-child { font-weight: 700; }
++  .receipt-line, .receipt-totals div { display: flex; justify-content: space-between; gap: 1rem; }
++  .receipt-total-line { font-weight: 700; border-top: 1px dashed #5fbeaa; margin-top: 0.4rem; padding-top: 0.4rem; }
++  .receipt-payment { margin-top: 0.4rem; }
++  .receipt-footer { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px dashed #dbdde3; text-align: center; font-size: 0.8rem; color: #75798b; }
++  @page { margin: 0; }
++`;
++
++function receiptHeaderHtml(profile) {
++  return `
++    <div class="receipt-shop-header">
++      ${profile.logoUrl ? `<img class="receipt-logo" src="${escapeHtml(profile.logoUrl)}" alt="">` : ''}
++      <div class="receipt-store-name">${escapeHtml(profile.storeName || 'Xeoscape')}</div>
++      ${profile.tagline ? `<div class="receipt-tagline">${escapeHtml(profile.tagline)}</div>` : ''}
++      ${profile.addressLine1 ? `<div class="receipt-address">${escapeHtml(profile.addressLine1)}</div>` : ''}
++      ${profile.addressLine2 ? `<div class="receipt-address">${escapeHtml(profile.addressLine2)}</div>` : ''}
++      ${profile.contactNumber ? `<div class="receipt-address">Ph: ${escapeHtml(profile.contactNumber)}</div>` : ''}
++      ${profile.taxId ? `<div class="receipt-address">GSTIN: ${escapeHtml(profile.taxId)}</div>` : ''}
++    </div>`;
++}
++
++/**
++ * Builds a full, standalone HTML document for a paid receipt -- built
++ * fresh from the transaction data (rather than serializing the modal's
++ * DOM) so it carries its own styles and prints correctly through the
++ * hidden-iframe route in shared/print-utils.js, independent of the
++ * app's own stylesheet or whatever else is currently on screen.
++ */
++function buildReceiptPrintHtml(transaction) {
++  const symbol = settingsStore.getCurrencySymbol();
++  const profile = settingsStore.getProfile();
++
++  const lines = transaction.items.map((li) => `
++    <div class="receipt-line">
++      <span>${escapeHtml(li.name)} x${escapeHtml(li.quantity)}</span>
++      <span>${escapeHtml(formatMoney(li.lineTotal, symbol))}</span>
++    </div>`).join('');
++
++  return `<!DOCTYPE html>
++<html>
++<head><meta charset="utf-8"><title>Receipt</title><style>${RECEIPT_PRINT_CSS}</style></head>
++<body>
++  <div class="receipt">
++    ${receiptHeaderHtml(profile)}
++    <div class="receipt-header"><div>${escapeHtml(formatDate(transaction.createdAt))}</div></div>
++    <div class="receipt-lines">${lines}</div>
++    <div class="receipt-totals">
++      <div>Subtotal: ${escapeHtml(formatMoney(transaction.subtotal, symbol))}</div>
++      <div>Discount: ${escapeHtml(formatMoney(transaction.discount, symbol))}</div>
++      <div class="receipt-total-line">Total: ${escapeHtml(formatMoney(transaction.total, symbol))}</div>
++    </div>
++    <div class="receipt-payment">Paid via ${escapeHtml(transaction.paymentMethod)}</div>
++    ${profile.receiptFooter ? `<div class="receipt-footer">${escapeHtml(profile.receiptFooter)}</div>` : ''}
++  </div>
++</body>
++</html>`;
++}
++
++/**
++ * Same idea as buildReceiptPrintHtml, for the pre-payment order
++ * preview.
++ */
++function buildOrderPreviewPrintHtml({ lines = [], discount = 0, total = 0 }) {
++  const symbol = settingsStore.getCurrencySymbol();
++  const profile = settingsStore.getProfile();
++
++  const rows = lines.map((line) => `
++    <div class="receipt-line">
++      <span>${escapeHtml(line.product.name)} x${escapeHtml(line.quantity)}</span>
++      <span>${escapeHtml(formatMoney(line.product.price * line.quantity, symbol))}</span>
++    </div>`).join('');
++
++  return `<!DOCTYPE html>
++<html>
++<head><meta charset="utf-8"><title>Order Preview</title><style>${RECEIPT_PRINT_CSS}</style></head>
++<body>
++  <div class="receipt">
++    ${receiptHeaderHtml(profile)}
++    <div class="receipt-header"><div>Order Preview (unpaid)</div></div>
++    <div class="receipt-lines">${rows}</div>
++    <div class="receipt-totals">
++      ${discount > 0 ? `<div>Discount: ${escapeHtml(formatMoney(discount, symbol))}</div>` : ''}
++      <div class="receipt-total-line">Total: ${escapeHtml(formatMoney(total, symbol))}</div>
++    </div>
++  </div>
++</body>
++</html>`;
++}
+ 
+ /**
+  * Builds the shop-identity block shown at the top of every printed
+@@ -69,15 +178,16 @@ export function renderReceipt(transaction) {
+         label: 'Print',
+         className: 'btn-secondary',
+         closeOnClick: false,
+-        // Small delay before printing: this modal opens immediately
+-        // after the payment modal closes (a rapid transition), and
+-        // invoking window.print() while the webview is still settling
+-        // from that appears related to a reported app-crash-on-print
+-        // issue that only reproduced from this specific flow (not from
+-        // the pre-checkout order preview, which doesn't follow a rapid
+-        // modal transition). Letting a frame settle first is a cheap,
+-        // safe mitigation to try.
+-        onClick: () => setTimeout(() => window.print(), 100)
++        // Printed via a hidden iframe (see shared/print-utils.js)
++        // rather than window.print() on the main window: printing the
++        // main window directly had two problems -- it printed
++        // whatever else happened to be on screen along with the
++        // receipt (the app has no @media print rules to hide the rest
++        // of the UI), and calling it right after the payment modal
++        // closes (a rapid transition) was linked to an app-crash-on-
++        // print report. Building a standalone document and printing
++        // that instead sidesteps both.
++        onClick: () => printHtml(buildReceiptPrintHtml(transaction)).catch((err) => notification.error(`Print failed: ${err.message}`))
+       },
+       {
+         label: '\u{1F4AC} WhatsApp',
+@@ -158,7 +268,7 @@ export function renderOrderPreview({ lines = [], discount = 0, total = 0 }) {
+     title: 'Order Preview',
+     content: preview,
+     actions: [
+-      { label: 'Print', className: 'btn-secondary', closeOnClick: false, onClick: () => setTimeout(() => window.print(), 100) },
++      { label: 'Print', className: 'btn-secondary', closeOnClick: false, onClick: () => printHtml(buildOrderPreviewPrintHtml({ lines, discount, total })).catch((err) => notification.error(`Print failed: ${err.message}`)) },
+       { label: 'Close', className: 'btn-primary' }
+     ]
+   });
+diff --git a/assets/js/modules/labels/label-quick-print.js b/assets/js/modules/labels/label-quick-print.js
+index ebca192..64a9c5b 100644
+--- a/assets/js/modules/labels/label-quick-print.js
++++ b/assets/js/modules/labels/label-quick-print.js
+@@ -193,11 +193,7 @@ export function openQuickLabelPrint(product) {
+           }
+           const items = Array.from({ length: quantity }, () => labelItem(1));
+           const labelsAcross = size.kind === 'sheet' ? 1 : Math.max(1, Number(acrossSelect.value) || 1);
+-          const printWindow = openPrintWindow(buildLabelSheetHtml(items, size, contentOptions(), 0, labelsAcross));
+-          if (!printWindow) {
+-            notification.error('The print window was blocked. Allow pop-ups for Xeoscape and try again.');
+-            return;
+-          }
++          openPrintWindow(buildLabelSheetHtml(items, size, contentOptions(), 0, labelsAcross));
+           notification.success(`Sent ${quantity} label${quantity === 1 ? '' : 's'} to the printer.`);
+           modalManager.close();
+         }
+diff --git a/assets/js/modules/labels/label-sheet.js b/assets/js/modules/labels/label-sheet.js
+index cfa940d..63a1e5e 100644
+--- a/assets/js/modules/labels/label-sheet.js
++++ b/assets/js/modules/labels/label-sheet.js
+@@ -11,6 +11,7 @@
+ // width they were calculated for, which is what makes them scan.
+ 
+ import { barcodeSvg, encodeCode128, encodeEan13 } from '../../shared/barcode.js';
++import { printHtml } from '../../shared/print-utils.js';
+ 
+ /**
+  * @typedef {object} LabelItem
+@@ -379,30 +380,24 @@ export function buildLabelSheetHtml(items, size, options = {}, skipCount = 0, la
+ }
+ 
+ /**
+- * Opens the built document in a new window and sends it to the print
+- * dialog.
++ * Sends the built document to the printer.
+  *
+- * Printing happens from a separate window rather than an iframe or the
+- * app window so the app's own stylesheet can't leak in and shift the
+- * layout, and so the operator can hit "Print" again for a second run
+- * without rebuilding everything.
++ * This goes through a hidden iframe (see shared/print-utils.js) rather
++ * than a new window/popup: the app's own stylesheet can't leak into a
++ * separate document either way, and unlike `window.open()` this
++ * doesn't depend on the runtime allowing a new window to be created --
++ * which is exactly what was silently failing when this app is packaged
++ * as a Tauri desktop app (labels or receipts would report "the print
++ * window was blocked" on some PCs no matter what pop-up settings were
++ * changed, because it was never really the OS/browser pop-up blocker
++ * involved).
+  *
+  * @param {string} html
+- * @returns {Window|null} null if a pop-up blocker got in the way
++ * @returns {true} kept boolean-returning for existing call sites; a
++ *   failure now surfaces as a thrown/rejected error instead, since a
++ *   hidden iframe has no "blocked" state to report.
+  */
+ export function openPrintWindow(html) {
+-  const printWindow = window.open('', '_blank');
+-  if (!printWindow) return null;
+-
+-  printWindow.document.open();
+-  printWindow.document.write(html);
+-  printWindow.document.close();
+-
+-  // Wait for layout before printing -- calling print() immediately can
+-  // catch the document mid-render and produce blank pages.
+-  printWindow.addEventListener('load', () => {
+-    printWindow.focus();
+-    printWindow.print();
+-  });
+-  return printWindow;
++  printHtml(html).catch((err) => console.error('Failed to print label sheet:', err));
++  return true;
+ }
+diff --git a/assets/js/modules/settings/barcode-labels.js b/assets/js/modules/settings/barcode-labels.js
+index ac9a31c..f5337a3 100644
+--- a/assets/js/modules/settings/barcode-labels.js
++++ b/assets/js/modules/settings/barcode-labels.js
+@@ -574,11 +574,7 @@ export async function mountBarcodeLabels(container) {
+       symbology: state.symbology
+     }, state.skipCount, state.labelsAcross);
+ 
+-    const printWindow = openPrintWindow(html);
+-    if (!printWindow) {
+-      notification.error('The print window was blocked. Allow pop-ups for Xeoscape and try again.');
+-      return;
+-    }
++    openPrintWindow(html);
+     notification.success(`Sent ${items.length} label${items.length === 1 ? '' : 's'} to the printer.`);
+   });
+ 
+diff --git a/assets/js/shared/barcode-scanner.js b/assets/js/shared/barcode-scanner.js
+new file mode 100644
+index 0000000..95c3fd6
+--- /dev/null
++++ b/assets/js/shared/barcode-scanner.js
+@@ -0,0 +1,135 @@
++// assets/js/shared/barcode-scanner.js
++//
++// USB barcode scanners like the Dcode DC7132 need no driver: to
++// Windows/macOS/Linux they show up as an ordinary USB keyboard ("HID
++// keyboard wedge"). Pulling the trigger just types out the barcode's
++// characters, one keystroke per character, followed by Enter -- all
++// within a few milliseconds, far faster than anyone could type by
++// hand. There's nothing to "install" for the scanner itself; plugging
++// it in is the whole setup (Windows will show a generic "HID Keyboard
++// Device" the first time -- that's expected, not a driver failure).
++//
++// The only real integration work is on this side: recognizing that
++// burst of keystrokes as a scan rather than as normal typing, and
++// acting on it no matter which element happens to have focus at the
++// till, since a busy cashier won't always have clicked into the "Scan
++// barcode" box first.
++//
++// This module listens for keydown globally, in the capture phase (so
++// it sees every keystroke before whatever element is focused does),
++// and when a burst of characters arrives faster than a human could
++// type and ends in Enter/Tab, reports it via the registered handler
++// and swallows those keystrokes so they don't also land in -- and
++// double-submit -- whatever field was focused. Ordinary typing,
++// including someone typing a barcode by hand into a text field, is
++// left completely alone and behaves exactly as it did before.
++
++// Consecutive keystrokes under this many ms apart are "scanner speed".
++// A HID scanner in keyboard-wedge mode (like the DC7132) typically
++// sends characters only a few ms apart; even fast manual typing
++// averages well over 60-80ms between keys. 40ms comfortably separates
++// the two without being so tight that a slightly slower/older scanner
++// gets missed. If a particular unit is configured with an inter-
++// character delay, raise this.
++export const MAX_INTERVAL_MS = 40;
++
++// A "scan" shorter than this is more likely a stray keystroke (e.g.
++// someone hit Enter in an empty field) than a real barcode -- nothing
++// this app generates is that short.
++export const MIN_SCAN_LENGTH = 3;
++
++// Which key ends a scan. DC7132 (and most HID scanners) default to
++// sending Enter/CR as the suffix; Tab is accepted too since it's the
++// other common configuration some scanners/stores use.
++export const TERMINATOR_KEYS = new Set(['Enter', 'Tab']);
++
++function isScanCandidateKey(key) {
++  // Printable, single-character keys only -- letters, digits, and
++  // symbols a barcode might contain. Modifier/navigation keys (Shift,
++  // Control, CapsLock, arrows, ...) are ignored without resetting the
++  // buffer or timer, since typing an uppercase letter still involves a
++  // Shift keydown as part of the very same fast burst.
++  return key.length === 1;
++}
++
++/**
++ * The actual scan-vs-typing detection, kept free of any DOM/event API
++ * so it can be unit tested with plain key/timestamp values (see
++ * tests/unit/barcode-scanner.test.js) rather than simulated keyboard
++ * events. `createScanDetector()` returns one detector with its own
++ * buffer -- the module below keeps a single app-wide instance.
++ */
++export function createScanDetector() {
++  let buffer = '';
++  let lastKeyTime = 0;
++
++  /**
++   * Feed one keydown's key value and timestamp (ms) in.
++   * @returns {string|null} the completed scan code, or null if this
++   *   keystroke didn't finish one (either it's not done yet, or the
++   *   burst that just ended didn't look like a scan).
++   */
++  function handleKey(key, now) {
++    if (TERMINATOR_KEYS.has(key)) {
++      const isFastBurst = buffer.length >= MIN_SCAN_LENGTH && (now - lastKeyTime) <= MAX_INTERVAL_MS;
++      const code = isFastBurst ? buffer : null;
++      buffer = '';
++      return code;
++    }
++
++    if (!isScanCandidateKey(key)) return null; // let modifiers/navigation pass through untouched
++
++    if (now - lastKeyTime > MAX_INTERVAL_MS) {
++      // Gap too large to be the same burst -- this keystroke starts a
++      // fresh (potential) scan rather than continuing what was
++      // actually slow, human typing.
++      buffer = '';
++    }
++    buffer += key;
++    lastKeyTime = now;
++    return null;
++  }
++
++  return { handleKey };
++}
++
++const detector = createScanDetector();
++let handler = null;
++
++function onKeyDown(e) {
++  if (!handler) return; // no screen currently wants scans -- see setScanHandler
++
++  const code = detector.handleKey(e.key, performance.now());
++  if (code === null) return;
++
++  // Stop this Enter/Tab from also reaching (and acting on) whatever
++  // input happened to be focused -- the scan is handled exactly once,
++  // here, regardless of focus.
++  e.preventDefault();
++  e.stopPropagation();
++  handler(code);
++}
++
++let installed = false;
++function ensureInstalled() {
++  if (installed) return;
++  installed = true;
++  document.addEventListener('keydown', onKeyDown, true);
++}
++
++/**
++ * Registers the function to call with the decoded text whenever a scan
++ * is detected. Only one handler is active at a time -- last caller
++ * wins -- matching how the app uses this: whichever screen is
++ * currently showing (POS, a barcode-entry field, etc.) is the one that
++ * should receive scans, and screens replace each other's handler as
++ * the user navigates rather than stacking up.
++ *
++ * @param {((code: string) => void)|null} fn pass null to stop
++ *   receiving scans, e.g. when navigating away from the screen that
++ *   registered it.
++ */
++export function setScanHandler(fn) {
++  ensureInstalled();
++  handler = fn;
++}
+diff --git a/assets/js/shared/print-utils.js b/assets/js/shared/print-utils.js
+new file mode 100644
+index 0000000..aa84d0c
+--- /dev/null
++++ b/assets/js/shared/print-utils.js
+@@ -0,0 +1,119 @@
++// assets/js/shared/print-utils.js
++//
++// Sends a self-contained HTML document to the printer WITHOUT opening
++// a new window/popup.
++//
++// History of why this looks the way it does, because both easier-
++// looking approaches were tried and failed on real hardware:
++//
++// 1. `window.open('', '_blank')`, printed into that new window. Works
++//    in a normal browser tab, but this app ships as a Tauri desktop
++//    app: the "browser" is really Tauri's own WebView2 (Windows) /
++//    WebKit (mac) shell. A bare `window.open()` there does NOT create
++//    a real window unless the app explicitly grants a "create webview
++//    window" permission in src-tauri/capabilities and wires up a
++//    handler for it in Rust -- neither of which this app does.
++//    Without that, `window.open()` just returns null (or a window
++//    that never receives content), which looks and feels exactly like
++//    "the browser blocked the pop-up", even though no popup blocker
++//    was actually involved -- which is why enabling "Allow pop-ups"
++//    in Windows/Edge settings never fixed anything on other PCs.
++//
++// 2. A hidden `<iframe>` with `iframe.contentWindow.print()`, to print
++//    something other than the current page without opening a new
++//    window. This works in ordinary desktop browsers, but on WebView2
++//    it printed a correctly-formed, otherwise-empty page carrying the
++//    MAIN window's own title and URL in the header/footer -- i.e.
++//    WebView2 does not scope `contentWindow.print()` to the iframe the
++//    way desktop Chrome does; it just prints the top-level window,
++//    which had nothing relevant on screen at the time. No amount of
++//    iframe sizing/visibility tweaking changes that; it's a real
++//    WebView2 limitation.
++//
++// What actually works: print the main window itself (`window.print()`,
++// which every runtime supports unconditionally) but temporarily inject
++// the label/receipt HTML into the current page and use `@media print`
++// rules to hide everything else in the app for that one print. This
++// is the standard "print only this element" technique, and since it
++// never touches a second window or frame, it isn't exposed to either
++// of the failure modes above.
++
++let styleEl = null;
++let containerEl = null;
++
++function cleanupPrintArea() {
++  containerEl?.remove();
++  styleEl?.remove();
++  containerEl = null;
++  styleEl = null;
++}
++
++/**
++ * Extracts the <style> rules and <body> markup out of a complete HTML
++ * document string, so they can be spliced into the live app page
++ * rather than a separate window/frame.
++ */
++function splitDocument(html) {
++  const doc = new DOMParser().parseFromString(html, 'text/html');
++  const styleText = Array.from(doc.querySelectorAll('style')).map((s) => s.textContent).join('\n');
++  const bodyHtml = doc.body ? doc.body.innerHTML : html;
++  return { styleText, bodyHtml };
++}
++
++/**
++ * Prints `html` (a complete HTML document, e.g. from
++ * modules/labels/label-sheet.js or modules/checkout/receipt.js)
++ * without opening a new window/popup and without depending on
++ * cross-frame print scoping. See the file header for why.
++ *
++ * @param {string} html a complete HTML document (<html>...</html>)
++ * @returns {Promise<void>} resolves once the print dialog has closed
++ *   (or after a fallback timeout, if a given runtime doesn't fire
++ *   `afterprint`)
++ */
++export function printHtml(html) {
++  return new Promise((resolve) => {
++    // In case a previous call's cleanup was somehow skipped.
++    cleanupPrintArea();
++
++    const { styleText, bodyHtml } = splitDocument(html);
++
++    containerEl = document.createElement('div');
++    containerEl.id = 'app-print-area';
++    containerEl.innerHTML = bodyHtml;
++    // Hidden during normal use; the stylesheet below is what reveals
++    // it, and only while an actual print is in progress -- so it never
++    // affects the on-screen app the rest of the time.
++    containerEl.style.display = 'none';
++
++    styleEl = document.createElement('style');
++    styleEl.id = 'app-print-style';
++    styleEl.textContent = `
++${styleText}
++@media print {
++  body > *:not(#app-print-area) { display: none !important; }
++  #app-print-area {
++    display: block !important;
++    position: absolute;
++    top: 0;
++    left: 0;
++    width: 100%;
++    margin: 0;
++  }
++}
++    `;
++
++    document.head.appendChild(styleEl);
++    document.body.appendChild(containerEl);
++
++    // Let layout settle before printing -- calling print() in the same
++    // tick as inserting the content can catch it mid-render.
++    requestAnimationFrame(() => {
++      const cleanup = () => { cleanupPrintArea(); resolve(); };
++      window.addEventListener('afterprint', cleanup, { once: true });
++      // Fallback in case a given webview doesn't fire afterprint.
++      setTimeout(cleanup, 15000);
++      window.print();
++    });
++  });
++}
+diff --git a/tests/helpers/data-dir.js b/tests/helpers/data-dir.js
+new file mode 100644
+index 0000000..0f3d4b1
+--- /dev/null
++++ b/tests/helpers/data-dir.js
+@@ -0,0 +1,43 @@
++// tests/helpers/data-dir.js
++//
++// Every manager in core/ (ProductManager, TransactionManager, ...) now
++// persists through core/sqlite-store.js, which keeps ONE open
++// `node:sqlite` connection per resolved `<dataDir>/store.sqlite` path,
++// cached at module scope (see the `connectionCache` Map there) and
++// never closed on its own -- there's no "test is done" signal a store
++// could react to.
++//
++// On Linux/macOS that's harmless to clean up after: unlinking a file
++// that a process still has open just detaches the directory entry,
++// and the open handle keeps working until closed. Windows/NTFS does
++// not allow that -- deleting (or recursively removing a directory
++// containing) a file that's still open throws EBUSY. Since every test
++// here creates its data dir with `fs.mkdtempSync` and tears it down
++// with `fs.rmSync` in afterEach/afterAll, that teardown was failing on
++// Windows for every test file that touches a SqliteStore-backed
++// manager, even though the tests themselves passed.
++//
++// The fix is simply to close the cached connection for that dataDir
++// first -- exactly what core/backup-manager.js already does before a
++// backup restore replaces the same file out from under a running
++// process (see SqliteStore.closeConnectionsUnder there for the same
++// reasoning applied to a real restore instead of test cleanup).
++const fs = require('fs');
++const SqliteStore = require('../../core/sqlite-store');
++
++/**
++ * Closes any cached SQLite connection under `dataDir`, then removes
++ * the directory. Use this in place of a bare `fs.rmSync(dataDir, ...)`
++ * in afterEach/afterAll for any test that constructs a manager backed
++ * by core/sqlite-store.js (which, as of the SQLite migration, is all
++ * of them except pure in-memory helpers).
++ *
++ * @param {string} dataDir
++ */
++function cleanupDataDir(dataDir) {
++  if (!dataDir) return;
++  SqliteStore.closeConnectionsUnder(dataDir);
++  fs.rmSync(dataDir, { recursive: true, force: true });
++}
++
++module.exports = { cleanupDataDir };
+diff --git a/tests/integration/api.test.js b/tests/integration/api.test.js
+index 212a800..78e7d1f 100644
+--- a/tests/integration/api.test.js
++++ b/tests/integration/api.test.js
+@@ -5,6 +5,7 @@ const os = require('os');
+ const path = require('path');
+ const request = require('http');
+ const { createServer } = require('../../server');
++const { cleanupDataDir } = require('../helpers/data-dir');
+ 
+ describe('API integration', () => {
+   let dataDir;
+@@ -12,6 +13,7 @@ describe('API integration', () => {
+   let baseUrl;
+   let stopScheduler;
+   let stopBackupScheduler;
++  let adminUserId;
+ 
+   beforeAll(async () => {
+     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yourshopapp-api-test-'));
+@@ -25,13 +27,36 @@ describe('API integration', () => {
+         resolve();
+       });
+     });
++
++    // Most write routes (POST /products, checkout, csv-import, ...)
++    // are gated by requirePermission() -- see api/auth-middleware.js --
++    // which 401s any request with no X-User-Id header identifying a
++    // logged-in user. createServer() already seeded the default
++    // admin/admin account (ensureDefaultAdmin, called during server
++    // boot), so logging in here and sending its id on every call below
++    // is all that's needed; there's no separate "login" endpoint, only
++    // this one authenticate-by-credentials call.
++    const authRes = await call('POST', '/api/users/authenticate', { username: 'admin', password: 'admin' });
++    adminUserId = authRes.body.id;
++
++    // The store profile defaults to charging tax (18% GST, matching
++    // this app's Indian-market defaults elsewhere) -- turn it off so
++    // the totals asserted below are plain price x quantity, the same
++    // way tests/unit/*.test.js control for tax via
++    // storeProfile.update({ chargeTax: false }) rather than baking a
++    // tax rate into each expected number.
++    await call('PUT', '/api/settings/profile', { chargeTax: false });
+   });
+ 
+   afterAll((done) => {
+     stopScheduler?.();
+     stopBackupScheduler?.();
+-    server.close(done);
+-    fs.rmSync(dataDir, { recursive: true, force: true });
++    server.close(() => {
++      // Close before removing dataDir -- see tests/helpers/data-dir.js
++      // for why the bare rmSync fails on Windows without this.
++      cleanupDataDir(dataDir);
++      done();
++    });
+   });
+ 
+   function call(method, urlPath, body) {
+@@ -41,7 +66,13 @@ describe('API integration', () => {
+         `${baseUrl}${urlPath}`,
+         {
+           method,
+-          headers: { 'Content-Type': 'application/json' }
++          headers: {
++            'Content-Type': 'application/json',
++            // Not present yet during the initial /authenticate call in
++            // beforeAll (adminUserId is still undefined then) -- that's
++            // fine, since /authenticate itself isn't permission-gated.
++            ...(adminUserId ? { 'X-User-Id': adminUserId } : {})
++          }
+         },
+         (res) => {
+           let raw = '';
+@@ -79,7 +110,8 @@ describe('API integration', () => {
+           method: 'POST',
+           headers: {
+             'Content-Type': `multipart/form-data; boundary=${boundary}`,
+-            'Content-Length': Buffer.byteLength(body)
++            'Content-Length': Buffer.byteLength(body),
++            ...(adminUserId ? { 'X-User-Id': adminUserId } : {})
+           }
+         },
+         (res) => {
+diff --git a/tests/unit/activation.test.js b/tests/unit/activation.test.js
+index c8b4b71..305eac6 100644
+--- a/tests/unit/activation.test.js
++++ b/tests/unit/activation.test.js
+@@ -5,6 +5,7 @@ const os = require('os');
+ const path = require('path');
+ const Activation = require('../../core/activation');
+ const storeConfig = require('../../core/store-config');
++const { cleanupDataDir } = require('../helpers/data-dir');
+ 
+ describe('Activation', () => {
+   let dataDir;
+@@ -17,7 +18,7 @@ describe('Activation', () => {
+   });
+ 
+   afterEach(() => {
+-    fs.rmSync(dataDir, { recursive: true, force: true });
++    cleanupDataDir(dataDir);
+   });
+ 
+   test('starts out not activated', async () => {
+diff --git a/tests/unit/backup-manager.test.js b/tests/unit/backup-manager.test.js
+index 1284319..91fc339 100644
+--- a/tests/unit/backup-manager.test.js
++++ b/tests/unit/backup-manager.test.js
+@@ -7,6 +7,7 @@ const BackupManager = require('../../core/backup-manager');
+ const { applyPendingRestoreIfAny } = require('../../core/backup-manager');
+ const ProductManager = require('../../core/product-manager');
+ const storeConfig = require('../../core/store-config');
++const SqliteStore = require('../../core/sqlite-store');
+ 
+ describe('BackupManager', () => {
+   let root, dataDir, backupManager;
+@@ -20,6 +21,10 @@ describe('BackupManager', () => {
+   });
+ 
+   afterEach(() => {
++    // Close before removing `root` (dataDir's parent) -- see
++    // tests/helpers/data-dir.js for why the bare rmSync fails on
++    // Windows without this.
++    SqliteStore.closeConnectionsUnder(dataDir);
+     fs.rmSync(root, { recursive: true, force: true });
+   });
+ 
+diff --git a/tests/unit/barcode-scanner.test.js b/tests/unit/barcode-scanner.test.js
+new file mode 100644
+index 0000000..0a0dd3d
+--- /dev/null
++++ b/tests/unit/barcode-scanner.test.js
+@@ -0,0 +1,96 @@
++// tests/unit/barcode-scanner.test.js
++//
++// Exercises the pure scan-vs-typing detector behind
++// assets/js/shared/barcode-scanner.js directly, with plain
++// key/timestamp values, rather than simulating real keyboard events --
++// this file is what actually decides whether a burst of keystrokes
++// (from a USB HID scanner like the Dcode DC7132, or from a person
++// typing) counts as a completed scan.
++
++import { createScanDetector, MAX_INTERVAL_MS, MIN_SCAN_LENGTH } from '../../assets/js/shared/barcode-scanner.js';
++
++/** Feeds a string's characters in at `gapMs` apart, then Enter. */
++function typeScan(detector, text, gapMs, startTime = 1000) {
++  let now = startTime;
++  let result = null;
++  for (const ch of text) {
++    result = detector.handleKey(ch, now);
++    now += gapMs;
++  }
++  result = detector.handleKey('Enter', now);
++  return result;
++}
++
++describe('barcode scan detector', () => {
++  let detector;
++
++  beforeEach(() => {
++    detector = createScanDetector();
++  });
++
++  test('a fast keystroke burst ending in Enter is reported as a scan', () => {
++    const code = typeScan(detector, '2000000000015', 5);
++    expect(code).toBe('2000000000015');
++  });
++
++  test('a fast burst ending in Tab is also reported as a scan', () => {
++    let now = 1000;
++    'ABC-123'.split('').forEach((ch) => { detector.handleKey(ch, now); now += 5; });
++    expect(detector.handleKey('Tab', now)).toBe('ABC-123');
++  });
++
++  test('normal human typing speed is left alone (not reported as a scan)', () => {
++    // Comfortably above MAX_INTERVAL_MS between keys.
++    const code = typeScan(detector, '2000000000015', MAX_INTERVAL_MS * 3);
++    expect(code).toBeNull();
++  });
++
++  test('hitting Enter with nothing typed is not a scan', () => {
++    expect(detector.handleKey('Enter', 1000)).toBeNull();
++  });
++
++  test('a burst shorter than MIN_SCAN_LENGTH is not treated as a scan', () => {
++    const shortText = '1'.repeat(MIN_SCAN_LENGTH - 1);
++    const code = typeScan(detector, shortText, 5);
++    expect(code).toBeNull();
++  });
++
++  test('a burst right at MIN_SCAN_LENGTH is treated as a scan', () => {
++    const text = '1'.repeat(MIN_SCAN_LENGTH);
++    const code = typeScan(detector, text, 5);
++    expect(code).toBe(text);
++  });
++
++  test('slow typing followed by a fast finish does not retroactively count the slow part', () => {
++    let now = 1000;
++    // Slow, human-speed keys first...
++    detector.handleKey('9', now); now += 300;
++    detector.handleKey('9', now); now += 300;
++    // ...then a fast burst starts fresh (buffer reset by the big gap).
++    'ABC123'.split('').forEach((ch) => { detector.handleKey(ch, now); now += 5; });
++    const code = detector.handleKey('Enter', now);
++    expect(code).toBe('ABC123'); // not '99ABC123'
++  });
++
++  test('a Shift keydown mid-burst does not break or reset the scan', () => {
++    let now = 1000;
++    detector.handleKey('A', now); now += 5;
++    detector.handleKey('Shift', now); now += 2; // modifier key, part of typing an uppercase char
++    detector.handleKey('B', now); now += 5;
++    detector.handleKey('C', now); now += 5;
++    expect(detector.handleKey('Enter', now)).toBe('ABC');
++  });
++
++  test('the buffer resets after a completed scan, so back-to-back scans both work', () => {
++    const first = typeScan(detector, '111111', 5, 1000);
++    const second = typeScan(detector, '222222', 5, 5000);
++    expect(first).toBe('111111');
++    expect(second).toBe('222222');
++  });
++
++  test('a completed non-scan (slow) Enter clears the buffer for the next attempt', () => {
++    typeScan(detector, '999999', MAX_INTERVAL_MS * 3, 1000); // slow -> not a scan, buffer clears
++    const code = typeScan(detector, '111111', 5, 5000); // fast -> should be a clean scan
++    expect(code).toBe('111111');
++  });
++});
+diff --git a/tests/unit/email-settings.test.js b/tests/unit/email-settings.test.js
+index c0e73c8..5afe14a 100644
+--- a/tests/unit/email-settings.test.js
++++ b/tests/unit/email-settings.test.js
+@@ -4,6 +4,7 @@ const fs = require('fs');
+ const os = require('os');
+ const path = require('path');
+ const EmailSettings = require('../../core/email-settings');
++const { cleanupDataDir } = require('../helpers/data-dir');
+ 
+ describe('EmailSettings', () => {
+   let dataDir;
+@@ -15,7 +16,7 @@ describe('EmailSettings', () => {
+   });
+ 
+   afterEach(() => {
+-    fs.rmSync(dataDir, { recursive: true, force: true });
++    cleanupDataDir(dataDir);
+   });
+ 
+   test('returns sensible defaults when nothing has been saved', async () => {
+diff --git a/tests/unit/garment-intake.test.js b/tests/unit/garment-intake.test.js
+index 6e22470..956fc46 100644
+--- a/tests/unit/garment-intake.test.js
++++ b/tests/unit/garment-intake.test.js
+@@ -9,6 +9,7 @@ const TransactionManager = require('../../core/transaction-manager');
+ const StoreProfile = require('../../core/store-profile');
+ const storeConfig = require('../../core/store-config');
+ const { tagInGarment, findMatchingGarment, defaultName } = require('../../core/garment-intake');
++const { cleanupDataDir } = require('../helpers/data-dir');
+ 
+ describe('garment intake', () => {
+   let dataDir, productManager, inventoryManager, deps;
+@@ -22,7 +23,7 @@ describe('garment intake', () => {
+   });
+ 
+   afterEach(() => {
+-    fs.rmSync(dataDir, { recursive: true, force: true });
++    cleanupDataDir(dataDir);
+   });
+ 
+   const TEE = { garmentType: 'T-Shirt', color: 'Navy Blue', size: 'M', price: 799 };
+@@ -113,7 +114,7 @@ describe('tag -> sale -> stock loop', () => {
+   });
+ 
+   afterEach(() => {
+-    fs.rmSync(dataDir, { recursive: true, force: true });
++    cleanupDataDir(dataDir);
+   });
+ 
+   test('scanning a printed tag sells the garment and takes it off stock', async () => {
+diff --git a/tests/unit/product-manager.test.js b/tests/unit/product-manager.test.js
+index 1705c11..cb889e6 100644
+--- a/tests/unit/product-manager.test.js
++++ b/tests/unit/product-manager.test.js
+@@ -5,6 +5,7 @@ const os = require('os');
+ const path = require('path');
+ const ProductManager = require('../../core/product-manager');
+ const storeConfig = require('../../core/store-config');
++const { cleanupDataDir } = require('../helpers/data-dir');
+ 
+ describe('ProductManager', () => {
+   let dataDir;
+@@ -17,7 +18,7 @@ describe('ProductManager', () => {
+   });
+ 
+   afterEach(() => {
+-    fs.rmSync(dataDir, { recursive: true, force: true });
++    cleanupDataDir(dataDir);
+   });
+ 
+   test('creates a product with required fields', async () => {
+diff --git a/tests/unit/report-generator.test.js b/tests/unit/report-generator.test.js
+index 529ee72..6bcc175 100644
+--- a/tests/unit/report-generator.test.js
++++ b/tests/unit/report-generator.test.js
+@@ -9,6 +9,7 @@ const TransactionManager = require('../../core/transaction-manager');
+ const StoreProfile = require('../../core/store-profile');
+ const ReportGenerator = require('../../core/report-generator');
+ const storeConfig = require('../../core/store-config');
++const { cleanupDataDir } = require('../helpers/data-dir');
+ 
+ describe('ReportGenerator#productPerformance', () => {
+   let dataDir, productManager, inventoryManager, transactionManager, reportGenerator;
+@@ -46,7 +47,7 @@ describe('ReportGenerator#productPerformance', () => {
+   });
+ 
+   afterEach(() => {
+-    fs.rmSync(dataDir, { recursive: true, force: true });
++    cleanupDataDir(dataDir);
+   });
+ 
+   test('includes every current product, even ones with zero sales in range', async () => {
+@@ -109,7 +110,7 @@ describe('ReportGenerator#productPerformance', () => {
+     expect(report.items[0].abcClass).toBe('C');
+     expect(report.items[0].flaggedSlowMoving).toBe(true);
+ 
+-    fs.rmSync(emptyDataDir, { recursive: true, force: true });
++    cleanupDataDir(emptyDataDir);
+   });
+ });
+ 
+@@ -130,7 +131,7 @@ describe('ReportGenerator#inventoryMovement', () => {
+   });
+ 
+   afterEach(() => {
+-    fs.rmSync(dataDir, { recursive: true, force: true });
++    cleanupDataDir(dataDir);
+   });
+ 
+   test('produces a daily series with carried-forward stock levels on days with no movement', async () => {
+diff --git a/tests/unit/transaction-manager.test.js b/tests/unit/transaction-manager.test.js
+index ef07dcf..72258bb 100644
+--- a/tests/unit/transaction-manager.test.js
++++ b/tests/unit/transaction-manager.test.js
+@@ -29,6 +29,10 @@ describe('TransactionManager', () => {
+   });
+ 
+   afterEach(() => {
++    // Closes the cached SqliteStore connection(s) under dataDir first
++    // -- see tests/helpers/data-dir.js for why the bare rmSync fails
++    // on Windows without this.
++    SqliteStore.closeConnectionsUnder(dataDir);
+     fs.rmSync(dataDir, { recursive: true, force: true });
+   });
+ 
