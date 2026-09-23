@@ -9,6 +9,7 @@ const TransactionManager = require('../../core/transaction-manager');
 const StoreProfile = require('../../core/store-profile');
 const ReportGenerator = require('../../core/report-generator');
 const storeConfig = require('../../core/store-config');
+const { cleanupDataDir } = require('../helpers/data-dir');
 
 describe('ReportGenerator#productPerformance', () => {
   let dataDir, productManager, inventoryManager, transactionManager, reportGenerator;
@@ -46,7 +47,7 @@ describe('ReportGenerator#productPerformance', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    cleanupDataDir(dataDir);
   });
 
   test('includes every current product, even ones with zero sales in range', async () => {
@@ -109,7 +110,7 @@ describe('ReportGenerator#productPerformance', () => {
     expect(report.items[0].abcClass).toBe('C');
     expect(report.items[0].flaggedSlowMoving).toBe(true);
 
-    fs.rmSync(emptyDataDir, { recursive: true, force: true });
+    cleanupDataDir(emptyDataDir);
   });
 });
 
@@ -130,7 +131,7 @@ describe('ReportGenerator#inventoryMovement', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    cleanupDataDir(dataDir);
   });
 
   test('produces a daily series with carried-forward stock levels on days with no movement', async () => {

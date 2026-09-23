@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const Activation = require('../../core/activation');
 const storeConfig = require('../../core/store-config');
+const { cleanupDataDir } = require('../helpers/data-dir');
 
 describe('Activation', () => {
   let dataDir;
@@ -17,7 +18,7 @@ describe('Activation', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    cleanupDataDir(dataDir);
   });
 
   test('starts out not activated', async () => {

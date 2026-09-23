@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const ProductManager = require('../../core/product-manager');
 const storeConfig = require('../../core/store-config');
+const { cleanupDataDir } = require('../helpers/data-dir');
 
 describe('ProductManager', () => {
   let dataDir;
@@ -17,7 +18,7 @@ describe('ProductManager', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    cleanupDataDir(dataDir);
   });
 
   test('creates a product with required fields', async () => {

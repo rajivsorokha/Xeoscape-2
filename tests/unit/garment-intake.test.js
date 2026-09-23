@@ -9,6 +9,7 @@ const TransactionManager = require('../../core/transaction-manager');
 const StoreProfile = require('../../core/store-profile');
 const storeConfig = require('../../core/store-config');
 const { tagInGarment, findMatchingGarment, defaultName } = require('../../core/garment-intake');
+const { cleanupDataDir } = require('../helpers/data-dir');
 
 describe('garment intake', () => {
   let dataDir, productManager, inventoryManager, deps;
@@ -22,7 +23,7 @@ describe('garment intake', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    cleanupDataDir(dataDir);
   });
 
   const TEE = { garmentType: 'T-Shirt', color: 'Navy Blue', size: 'M', price: 799 };
@@ -113,7 +114,7 @@ describe('tag -> sale -> stock loop', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    cleanupDataDir(dataDir);
   });
 
   test('scanning a printed tag sells the garment and takes it off stock', async () => {

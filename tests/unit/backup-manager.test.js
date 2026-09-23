@@ -7,6 +7,7 @@ const BackupManager = require('../../core/backup-manager');
 const { applyPendingRestoreIfAny } = require('../../core/backup-manager');
 const ProductManager = require('../../core/product-manager');
 const storeConfig = require('../../core/store-config');
+const SqliteStore = require('../../core/sqlite-store');
 
 describe('BackupManager', () => {
   let root, dataDir, backupManager;
@@ -20,6 +21,10 @@ describe('BackupManager', () => {
   });
 
   afterEach(() => {
+    // Close before removing `root` (dataDir's parent) -- see
+    // tests/helpers/data-dir.js for why the bare rmSync fails on
+    // Windows without this.
+    SqliteStore.closeConnectionsUnder(dataDir);
     fs.rmSync(root, { recursive: true, force: true });
   });
 

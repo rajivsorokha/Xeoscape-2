@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const EmailSettings = require('../../core/email-settings');
+const { cleanupDataDir } = require('../helpers/data-dir');
 
 describe('EmailSettings', () => {
   let dataDir;
@@ -15,7 +16,7 @@ describe('EmailSettings', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    cleanupDataDir(dataDir);
   });
 
   test('returns sensible defaults when nothing has been saved', async () => {

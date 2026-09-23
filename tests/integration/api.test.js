@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const request = require('http');
 const { createServer } = require('../../server');
+const { cleanupDataDir } = require('../helpers/data-dir');
 
 describe('API integration', () => {
   let dataDir;
@@ -12,6 +13,7 @@ describe('API integration', () => {
   let baseUrl;
   let stopScheduler;
   let stopBackupScheduler;
+  let adminUserId;
 
   beforeAll(async () => {
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yourshopapp-api-test-'));
@@ -25,13 +27,36 @@ describe('API integration', () => {
         resolve();
       });
     });
+
+    // Most write routes (POST /products, checkout, csv-import, ...)
+    // are gated by requirePermission() -- see api/auth-middleware.js --
+    // which 401s any request with no X-User-Id header identifying a
+    // logged-in user. createServer() already seeded the default
+    // admin/admin account (ensureDefaultAdmin, called during server
+    // boot), so logging in here and sending its id on every call below
+    // is all that's needed; there's no separate "login" endpoint, only
+    // this one authenticate-by-credentials call.
+    const authRes = await call('POST', '/api/users/authenticate', { username: 'admin', password: 'admin' });
+    adminUserId = authRes.body.id;
+
+    // The store profile defaults to charging tax (18% GST, matching
+    // this app's Indian-market defaults elsewhere) -- turn it off so
+    // the totals asserted below are plain price x quantity, the same
+    // way tests/unit/*.test.js control for tax via
+    // storeProfile.update({ chargeTax: false }) rather than baking a
+    // tax rate into each expected number.
+    await call('PUT', '/api/settings/profile', { chargeTax: false });
   });
 
   afterAll((done) => {
     stopScheduler?.();
     stopBackupScheduler?.();
-    server.close(done);
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    server.close(() => {
+      // Close before removing dataDir -- see tests/helpers/data-dir.js
+      // for why the bare rmSync fails on Windows without this.
+      cleanupDataDir(dataDir);
+      done();
+    });
   });
 
   function call(method, urlPath, body) {
@@ -41,7 +66,13 @@ describe('API integration', () => {
         `${baseUrl}${urlPath}`,
         {
           method,
-          headers: { 'Content-Type': 'application/json' }
+          headers: {
+            'Content-Type': 'application/json',
+            // Not present yet during the initial /authenticate call in
+            // beforeAll (adminUserId is still undefined then) -- that's
+            // fine, since /authenticate itself isn't permission-gated.
+            ...(adminUserId ? { 'X-User-Id': adminUserId } : {})
+          }
         },
         (res) => {
           let raw = '';
@@ -79,7 +110,8 @@ describe('API integration', () => {
           method: 'POST',
           headers: {
             'Content-Type': `multipart/form-data; boundary=${boundary}`,
-            'Content-Length': Buffer.byteLength(body)
+            'Content-Length': Buffer.byteLength(body),
+            ...(adminUserId ? { 'X-User-Id': adminUserId } : {})
           }
         },
         (res) => {

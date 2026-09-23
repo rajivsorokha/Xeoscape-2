@@ -29,6 +29,10 @@ describe('TransactionManager', () => {
   });
 
   afterEach(() => {
+    // Closes the cached SqliteStore connection(s) under dataDir first
+    // -- see tests/helpers/data-dir.js for why the bare rmSync fails
+    // on Windows without this.
+    SqliteStore.closeConnectionsUnder(dataDir);
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
