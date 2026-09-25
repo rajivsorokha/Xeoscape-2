@@ -11,9 +11,7 @@ import { el } from '../../shared/utils.js';
 import { formatMoney, formatDate } from '../../shared/formatters.js';
 import settingsStore from '../../shared/settings-store.js';
 import modalManager from '../../ui/modal-manager.js';
-import apiClient from '../../shared/api-client.js';
-import { openWhatsApp } from '../../shared/whatsapp.js';
-import { promptModal } from '../../ui/prompt.js';
+import { getWhatsAppPhone, sendBillOnWhatsApp } from '../../shared/whatsapp.js';
 import notification from '../../ui/notification.js';
 import { printHtml } from '../../shared/print-utils.js';
 
@@ -156,7 +154,7 @@ function renderReceiptHeader(profile) {
   ]);
 }
 
-export function renderReceipt(transaction) {
+export function renderReceipt(transaction, { phone: knownPhone = '' } = {}) {
   const symbol = settingsStore.getCurrencySymbol();
   const profile = settingsStore.getProfile();
 
@@ -202,20 +200,19 @@ export function renderReceipt(transaction) {
         label: '\u{1F4AC} WhatsApp',
         className: 'btn-whatsapp',
         closeOnClick: false,
-        onClick: async () => {
-          let phone = '';
-          if (transaction.customerId) {
-            try {
-              const customer = await apiClient.get(`/customers/${transaction.customerId}`);
-              phone = customer.phone || '';
-            } catch (err) {
-              // fall through to manual entry
-            }
+        onClick: async (e) => {
+          const btn = e.currentTarget; // must be read before any await
+          // Customer's saved number, else the one typed on the POS
+          // screen for this sale, else ask (and remember it).
+          const receiptOverlay = modalManager.overlay;
+          const phone = await getWhatsAppPhone({ customerId: transaction.customerId || null, knownPhone });
+          // Asking for a number swaps this receipt out for the prompt
+          // (only one modal at a time) -- bring the receipt back.
+          if (receiptOverlay && !document.body.contains(receiptOverlay)) {
+            renderReceipt(transaction, { phone: phone || knownPhone });
           }
-          if (!phone) {
-            phone = await promptModal('Customer WhatsApp number (with country code):', '');
-            if (phone === null) return;
-          }
+          if (!phone) return;
+          knownPhone = phone;
           const message = [
             `*${profile.storeName || 'Xeoscape'}* -- Receipt`,
             formatDate(transaction.createdAt),
@@ -229,8 +226,18 @@ export function renderReceipt(transaction) {
             '',
             profile.receiptFooter || 'Thank you for your business!'
           ].filter(Boolean).join('\n');
-          openWhatsApp(phone, message);
-          notification.success('Opening WhatsApp...');
+          if (btn) btn.disabled = true;
+          try {
+            await sendBillOnWhatsApp({
+              phone,
+              message,
+              customerName: transaction.customerName || '',
+              storeName: profile.storeName || 'Xeoscape',
+              totalText: formatMoney(transaction.total, symbol)
+            });
+          } finally {
+            if (btn) btn.disabled = false;
+          }
         }
       },
       { label: 'Close', className: 'btn-primary' }

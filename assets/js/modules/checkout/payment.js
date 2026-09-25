@@ -15,11 +15,16 @@ import { renderReceipt } from './receipt.js';
 
 const KEYPAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0'];
 
-export function openPaymentDialog({ cartManager, currentUserId, discount = 0, customerId = null, onComplete }) {
+export function openPaymentDialog({ cartManager, currentUserId, discount = 0, customerId = null, phone = '', onComplete }) {
   const subtotal = cartManager.getSubtotal();
   let paymentMethod = 'cash';
   let amountTendered = '';
   let cardInfo = '';
+  // Cash/Card open with the Payment box already filled with the full
+  // amount, so the cashier just hits Confirm. `untouched` means that
+  // value is still the auto-filled one: the first key pressed replaces
+  // it (e.g. customer hands over a bigger note), rather than appending.
+  let untouched = false;
 
   const symbol = settingsStore.getCurrencySymbol();
   const profile = settingsStore.getProfile();
@@ -60,6 +65,11 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
     if (creditTab) creditTab.classList.toggle('active', method === 'credit');
     cardInfoRow.style.display = method === 'card' ? 'flex' : 'none';
     creditHint.style.display = method === 'credit' ? 'block' : 'none';
+    // Credit starts at 0 collected (whole amount due); Cash/Card start
+    // at the full amount.
+    if (method === 'credit') { amountTendered = ''; untouched = false; }
+    else { amountTendered = String(total()); untouched = true; }
+    paymentField.value = amountTendered;
     updateChangeBar();
   }
   cashTab.addEventListener('click', () => selectMethod('cash'));
@@ -86,6 +96,7 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
       const firstDot = v.indexOf('.');
       if (firstDot !== -1) v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, '');
       amountTendered = v;
+      untouched = false;
       if (v !== e.target.value) e.target.value = v;
       updateChangeBar();
     },
@@ -135,17 +146,20 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
 
   // --- Keypad (mouse/touch path -- keeps the same amountTendered the keyboard path above writes to) ---
   function pressDigit(digit) {
+    if (untouched) { amountTendered = ''; untouched = false; }
     if (digit === '.' && amountTendered.includes('.')) return;
     amountTendered += digit;
     paymentField.value = amountTendered;
     updateChangeBar();
   }
   function clearAll() {
+    untouched = false;
     amountTendered = '';
     paymentField.value = '';
     updateChangeBar();
   }
   function backspace() {
+    untouched = false;
     amountTendered = amountTendered.slice(0, -1);
     paymentField.value = amountTendered;
     updateChangeBar();
@@ -204,7 +218,7 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
       modalManager.close();
       cartManager.clear();
       notification.success('Sale completed.');
-      renderReceipt(transaction);
+      renderReceipt(transaction, { phone });
       onComplete?.(transaction);
     } catch (err) {
       notification.error(`Checkout failed: ${err.message}`);
@@ -220,5 +234,9 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
     ]
   });
 
+  // Pre-fill the amount (Cash is the default tab).
+  amountTendered = String(total());
+  untouched = true;
+  paymentField.value = amountTendered;
   updateChangeBar();
 }

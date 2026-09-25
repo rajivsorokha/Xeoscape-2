@@ -16,8 +16,8 @@ class ModalManager {
     const actionButtons = actions.map((action) =>
       el('button', {
         class: `btn ${action.className || 'btn-secondary'}`,
-        onClick: () => {
-          if (action.onClick) action.onClick();
+        onClick: (e) => {
+          if (action.onClick) action.onClick(e);
           if (action.closeOnClick !== false) this.close();
         }
       }, action.label)

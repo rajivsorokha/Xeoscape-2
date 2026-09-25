@@ -9,7 +9,7 @@ import { el } from '../../shared/utils.js';
 import { formatMoney } from '../../shared/formatters.js';
 import settingsStore from '../../shared/settings-store.js';
 import { openCustomerForm } from '../customers/customer-form.js';
-import { openWhatsApp } from '../../shared/whatsapp.js';
+import { getWhatsAppPhone, sendBillOnWhatsApp } from '../../shared/whatsapp.js';
 import { promptModal } from '../../ui/prompt.js';
 import notification from '../../ui/notification.js';
 import { setScanHandler } from '../../shared/barcode-scanner.js';
@@ -17,6 +17,11 @@ import { setScanHandler } from '../../shared/barcode-scanner.js';
 export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
   let discount = 0;
   let selectedCustomerId = '';
+  // WhatsApp number typed for the current sale (walk-in customers have
+  // no saved number) -- reused by the Pay -> receipt screen so the
+  // cashier is never asked twice. Reset when the sale ends or the
+  // customer changes.
+  let salePhone = '';
   // --- Customer select row ---
   const customerSelect = el('select', {}, [el('option', { value: '' }, 'Walk in customer')]);
   const addCustomerBtn = el('button', { class: 'btn btn-primary btn-icon', onClick: () => openCustomerForm({ onSaved: refreshCustomers }) }, '+');
@@ -33,7 +38,7 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
       notification.error(`Failed to load customers: ${err.message}`);
     }
   }
-  customerSelect.addEventListener('change', (e) => { selectedCustomerId = e.target.value; });
+  customerSelect.addEventListener('change', (e) => { selectedCustomerId = e.target.value; salePhone = ''; });
 
   // --- Barcode / SKU scan row ---
   // Also fed by the USB scanner (e.g. Dcode DC7132): it's a plain HID
@@ -98,7 +103,7 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
 
   // --- Action row: Print / Cancel / Hold / Pay ---
   const printBtn = el('button', { class: 'btn btn-info btn-icon', title: 'Print preview', onClick: () => onPrintPreview?.({ lines: cartManager.getLines(), discount, total: computeGross() }) }, '\u{1F5A8}');
-  const cancelBtn = el('button', { class: 'btn btn-danger', onClick: () => { cartManager.clear(); discountInput.value = ''; discount = 0; } }, [el('span', {}, '\u2298 Cancel')]);
+  const cancelBtn = el('button', { class: 'btn btn-danger', onClick: () => { cartManager.clear(); discountInput.value = ''; discount = 0; salePhone = ''; } }, [el('span', {}, '\u2298 Cancel')]);
   const holdBtn = el('button', { class: 'btn btn-info', onClick: async () => {
     if (cartManager.getLines().length === 0) { notification.error('Cart is empty.'); return; }
     const ref = await promptModal('Reference for this held order:', '');
@@ -113,45 +118,51 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
       cartManager.clear();
       discountInput.value = '';
       discount = 0;
+      salePhone = '';
       notification.success('Order held. Find it under Open Tabs.');
     } catch (err) {
       notification.error(err.message);
     }
   } }, [el('span', {}, '\u270B Hold')]);
-  const payBtn = el('button', { class: 'btn btn-success', onClick: () => onPay?.({ discount, customerId: selectedCustomerId }) }, [el('span', {}, '\u{1F4B0} Pay')]);
+  const payBtn = el('button', { class: 'btn btn-success', onClick: () => onPay?.({ discount, customerId: selectedCustomerId, phone: salePhone }) }, [el('span', {}, '\u{1F4B0} Pay')]);
 
-  const whatsappBtn = el('button', { class: 'btn btn-whatsapp', title: 'Send bill to WhatsApp', onClick: async () => {
+  const whatsappBtn = el('button', { class: 'btn btn-whatsapp', title: 'Send bill to WhatsApp', onClick: async (e) => {
+    const btn = e.currentTarget; // must be read before any await
     if (cartManager.getLines().length === 0) { notification.error('Cart is empty.'); return; }
 
-    let phone = '';
-    if (selectedCustomerId) {
-      try {
-        const customer = await apiClient.get(`/customers/${selectedCustomerId}`);
-        phone = customer.phone || '';
-      } catch (err) {
-        // fall through to manual entry
-      }
-    }
-    if (!phone) {
-      phone = await promptModal('Customer WhatsApp number (with country code, e.g. 15551234567):', '');
-      if (phone === null) return;
-    }
+    // Number comes from the selected customer's saved phone; only
+    // asked for when there isn't one (then remembered for this sale).
+    const phone = await getWhatsAppPhone({ customerId: selectedCustomerId || null, knownPhone: salePhone });
+    if (!phone) return;
+    salePhone = phone;
 
     const symbol = settingsStore.getCurrencySymbol();
     const lines = cartManager.getLines();
     const profile = settingsStore.getProfile();
+    const total = computeGross();
     const message = [
       `*${profile.storeName || 'Xeoscape'}* -- Your Bill`,
       '',
       ...lines.map((l) => `${l.product.name} x${l.quantity} - ${formatMoney(l.product.price * l.quantity, symbol)}`),
       '',
       discount > 0 ? `Discount: ${formatMoney(discount, symbol)}` : null,
-      `*Total: ${formatMoney(computeGross(), symbol)}*`,
+      `*Total: ${formatMoney(total, symbol)}*`,
       '',
       'Thank you for your business!'
     ].filter(Boolean).join('\n');
 
-    openWhatsApp(phone, message);
+    btn.disabled = true;
+    try {
+      await sendBillOnWhatsApp({
+        phone,
+        message,
+        customerName: customerSelect.selectedOptions[0]?.textContent === 'Walk in customer' ? '' : customerSelect.selectedOptions[0]?.textContent,
+        storeName: profile.storeName || 'Xeoscape',
+        totalText: formatMoney(total, symbol)
+      });
+    } finally {
+      btn.disabled = false;
+    }
   } }, [el('span', {}, '\u{1F4AC} WhatsApp')]);
 
   container.appendChild(el('div', { class: 'cart-panel' }, [
@@ -208,6 +219,7 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
         ]));
       });
     }
+    if (lines.length === 0) salePhone = '';
     totalItemsEl.textContent = String(lines.reduce((s, l) => s + l.quantity, 0));
     priceEl.textContent = formatMoney(subtotal, settingsStore.getCurrencySymbol());
     grossPriceEl.textContent = formatMoney(computeGross(), settingsStore.getCurrencySymbol());

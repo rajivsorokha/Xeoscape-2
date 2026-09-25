@@ -194,10 +194,11 @@ export default class App {
     mountProductList(catalogPane, { eventBus: this.eventBus });
     mountCart(cartPane, {
       cartManager: this.cartManager,
-      onPay: ({ discount, customerId }) => openPaymentDialog({
+      onPay: ({ discount, customerId, phone }) => openPaymentDialog({
         cartManager: this.cartManager,
         discount,
         customerId,
+        phone,
         currentUserId: session.getCurrentUser()?.id
       }),
       onPrintPreview: (order) => renderOrderPreview(order)

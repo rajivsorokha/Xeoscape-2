@@ -32,7 +32,7 @@ const SECTIONS = [
   { id: 'bulk-import', label: 'Bulk Product Import', mount: mountBulkImport },
   { id: 'quick-scan-add', label: 'Quick Scan Add', mount: mountQuickScanAdd },
   { id: 'barcode-labels', label: 'Barcode Labels', mount: mountBarcodeLabels },
-  { id: 'whatsapp-reminders', label: 'WhatsApp Reminders', mount: mountWhatsAppReminders },
+  { id: 'whatsapp-reminders', label: 'WhatsApp', mount: mountWhatsAppReminders },
   { id: 'due-outstanding-report', label: 'Due / Outstanding Report', mount: mountDueOutstandingReport },
   { id: 'report-generator', label: 'Report Generator', mount: mountReportGenerator },
   { id: 'product-performance', label: 'Product Performance (ABC)', mount: mountProductPerformance },
