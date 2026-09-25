@@ -1,0 +1,1893 @@
+diff --git a/api/print.js b/api/print.js
+new file mode 100644
+index 0000000..ba8cbd2
+--- /dev/null
++++ b/api/print.js
+@@ -0,0 +1,83 @@
++// api/print.js
++// "Direct print": builds an ESC/POS receipt and sends it straight to
++// the chosen Windows printer (see core/escpos.js, core/raw-printer.js).
++// The Windows print dialog is not involved.
++
++const express = require('express');
++const { requirePermission } = require('./auth-middleware');
++const { buildReceiptBytes } = require('../core/escpos');
++
++const SAMPLE = {
++  title: 'Test receipt',
++  items: [
++    { name: 'Test T-Shirt', quantity: 1, lineTotal: 299 },
++    { name: 'Test Frock (long item name to check wrapping)', quantity: 2, lineTotal: 1198 }
++  ],
++  subtotal: 1497, discount: 0, taxAmount: 269.46, taxPercentage: 18, total: 1766.46, paymentMethod: 'cash'
++};
++
++function buildPrintRouter({ storeProfile, rawPrinter }) {
++  const router = express.Router();
++
++  const num = (v, fallback) => (Number.isFinite(Number(v)) && v !== '' && v != null ? Number(v) : fallback);
++
++  async function settingsWith(overrides = {}) {
++    const p = await storeProfile.get();
++    return {
++      printerName: overrides.printerName ?? p.receiptPrinterName,
++      paperWidthMm: Math.min(Math.max(num(overrides.paperWidthMm ?? p.receiptPaperWidthMm, 80), 30), 120),
++      tailMm: Math.min(Math.max(num(overrides.tailMm ?? p.receiptTailMm, 8), 0), 60),
++      shiftMm: num(overrides.shiftMm ?? p.receiptShiftMm, 0),
++      profile: p
++    };
++  }
++
++  function cleanReceipt(body) {
++    const r = body && typeof body === 'object' ? body : {};
++    const items = Array.isArray(r.items) ? r.items.slice(0, 500) : [];
++    return {
++      ...r,
++      items: items.map((i) => ({ name: String(i?.name ?? ''), quantity: num(i?.quantity, 1), lineTotal: num(i?.lineTotal, 0) }))
++    };
++  }
++
++  router.get('/printers', requirePermission('perm_settings'), async (req, res) => {
++    try {
++      res.json({ supported: process.platform === 'win32', printers: await rawPrinter.listPrinters() });
++    } catch (err) {
++      res.json({ supported: false, printers: [], error: err.message });
++    }
++  });
++
++  router.post('/receipt', requirePermission('perm_transactions'), async (req, res) => {
++    try {
++      const s = await settingsWith();
++      const bytes = buildReceiptBytes(cleanReceipt(req.body?.receipt), s);
++      await rawPrinter.sendRaw(s.printerName, bytes);
++      res.json({ printed: true });
++    } catch (err) {
++      res.status(502).json({ error: err.message });
++    }
++  });
++
++  router.post('/test', requirePermission('perm_settings'), async (req, res) => {
++    try {
++      const s = await settingsWith(req.body || {});
++      const p = s.profile;
++      const receipt = {
++        ...SAMPLE,
++        storeName: p.storeName, tagline: p.tagline, addressLines: [p.addressLine1, p.addressLine2],
++        phone: p.contactNumber, gstin: p.taxId, footer: p.receiptFooter, currencySymbol: p.currencySymbol,
++        date: new Date().toLocaleString('en-IN')
++      };
++      await rawPrinter.sendRaw(s.printerName, buildReceiptBytes(receipt, s));
++      res.json({ printed: true });
++    } catch (err) {
++      res.status(502).json({ error: err.message });
++    }
++  });
++
++  return router;
++}
++
++module.exports = buildPrintRouter;
+diff --git a/api/whatsapp.js b/api/whatsapp.js
+index 573028b..63595ea 100644
+--- a/api/whatsapp.js
++++ b/api/whatsapp.js
+@@ -7,7 +7,7 @@
+ 
+ const express = require('express');
+ const { requirePermission } = require('./auth-middleware');
+-const { sendWhatsAppReminder } = require('../core/whatsapp-sender');
++const { sendWhatsAppReminder, sendWhatsAppBill } = require('../core/whatsapp-sender');
+ 
+ function buildWhatsAppRouter({ whatsappSettings, customersDb, storeProfile }) {
+   const router = express.Router();
+@@ -26,6 +26,31 @@ function buildWhatsAppRouter({ whatsappSettings, customersDb, storeProfile }) {
+     res.json(redact(updated));
+   });
+ 
++  // GET /api/whatsapp/status -- lets the POS screen know whether it can
++  // send bills directly from the app or must fall back to opening
++  // WhatsApp (wa.me link).
++  router.get('/status', requirePermission('perm_transactions'), async (req, res) => {
++    res.json({ autoSend: await whatsappSettings.isConfigured() });
++  });
++
++  // POST /api/whatsapp/send-bill  { phone, message, customerName?, storeName?, totalText? }
++  // Sends a bill/receipt directly -- not tied to credit sales.
++  router.post('/send-bill', requirePermission('perm_transactions'), async (req, res) => {
++    try {
++      const settings = await whatsappSettings.get();
++      if (!(await whatsappSettings.isConfigured())) {
++        return res.status(400).json({ error: 'WhatsApp sending is not set up (Settings \u2192 WhatsApp).', notConfigured: true });
++      }
++      const { phone, message, customerName, storeName, totalText } = req.body || {};
++      if (!phone) return res.status(400).json({ error: 'A WhatsApp number is required.' });
++      if (!message) return res.status(400).json({ error: 'Nothing to send.' });
++      const result = await sendWhatsAppBill({ settings, toNumber: phone, body: String(message), customerName, storeName, totalText });
++      res.json({ sent: true, ...result });
++    } catch (err) {
++      res.status(502).json({ error: err.message });
++    }
++  });
++
+   async function requireCreditSales(req, res, next) {
+     const profile = await storeProfile.get();
+     if (!profile.creditSalesEnabled) {
+diff --git a/assets/js/core/app.js b/assets/js/core/app.js
+index 1bc00f3..2e7be0d 100644
+--- a/assets/js/core/app.js
++++ b/assets/js/core/app.js
+@@ -194,10 +194,11 @@ export default class App {
+     mountProductList(catalogPane, { eventBus: this.eventBus });
+     mountCart(cartPane, {
+       cartManager: this.cartManager,
+-      onPay: ({ discount, customerId }) => openPaymentDialog({
++      onPay: ({ discount, customerId, phone }) => openPaymentDialog({
+         cartManager: this.cartManager,
+         discount,
+         customerId,
++        phone,
+         currentUserId: session.getCurrentUser()?.id
+       }),
+       onPrintPreview: (order) => renderOrderPreview(order)
+diff --git a/assets/js/modules/cart/cart-ui.js b/assets/js/modules/cart/cart-ui.js
+index 7bf0851..2d2da22 100644
+--- a/assets/js/modules/cart/cart-ui.js
++++ b/assets/js/modules/cart/cart-ui.js
+@@ -9,7 +9,8 @@ import { el } from '../../shared/utils.js';
+ import { formatMoney } from '../../shared/formatters.js';
+ import settingsStore from '../../shared/settings-store.js';
+ import { openCustomerForm } from '../customers/customer-form.js';
+-import { openWhatsApp } from '../../shared/whatsapp.js';
++import { getWhatsAppPhone, sendBillOnWhatsApp } from '../../shared/whatsapp.js';
++import { buildBillMessage } from '../../shared/bill-message.js';
+ import { promptModal } from '../../ui/prompt.js';
+ import notification from '../../ui/notification.js';
+ import { setScanHandler } from '../../shared/barcode-scanner.js';
+@@ -17,6 +18,11 @@ import { setScanHandler } from '../../shared/barcode-scanner.js';
+ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
+   let discount = 0;
+   let selectedCustomerId = '';
++  // WhatsApp number typed for the current sale (walk-in customers have
++  // no saved number) -- reused by the Pay -> receipt screen so the
++  // cashier is never asked twice. Reset when the sale ends or the
++  // customer changes.
++  let salePhone = '';
+   // --- Customer select row ---
+   const customerSelect = el('select', {}, [el('option', { value: '' }, 'Walk in customer')]);
+   const addCustomerBtn = el('button', { class: 'btn btn-primary btn-icon', onClick: () => openCustomerForm({ onSaved: refreshCustomers }) }, '+');
+@@ -33,7 +39,7 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
+       notification.error(`Failed to load customers: ${err.message}`);
+     }
+   }
+-  customerSelect.addEventListener('change', (e) => { selectedCustomerId = e.target.value; });
++  customerSelect.addEventListener('change', (e) => { selectedCustomerId = e.target.value; salePhone = ''; });
+ 
+   // --- Barcode / SKU scan row ---
+   // Also fed by the USB scanner (e.g. Dcode DC7132): it's a plain HID
+@@ -98,7 +104,7 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
+ 
+   // --- Action row: Print / Cancel / Hold / Pay ---
+   const printBtn = el('button', { class: 'btn btn-info btn-icon', title: 'Print preview', onClick: () => onPrintPreview?.({ lines: cartManager.getLines(), discount, total: computeGross() }) }, '\u{1F5A8}');
+-  const cancelBtn = el('button', { class: 'btn btn-danger', onClick: () => { cartManager.clear(); discountInput.value = ''; discount = 0; } }, [el('span', {}, '\u2298 Cancel')]);
++  const cancelBtn = el('button', { class: 'btn btn-danger', onClick: () => { cartManager.clear(); discountInput.value = ''; discount = 0; salePhone = ''; } }, [el('span', {}, '\u2298 Cancel')]);
+   const holdBtn = el('button', { class: 'btn btn-info', onClick: async () => {
+     if (cartManager.getLines().length === 0) { notification.error('Cart is empty.'); return; }
+     const ref = await promptModal('Reference for this held order:', '');
+@@ -113,45 +119,54 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
+       cartManager.clear();
+       discountInput.value = '';
+       discount = 0;
++      salePhone = '';
+       notification.success('Order held. Find it under Open Tabs.');
+     } catch (err) {
+       notification.error(err.message);
+     }
+   } }, [el('span', {}, '\u270B Hold')]);
+-  const payBtn = el('button', { class: 'btn btn-success', onClick: () => onPay?.({ discount, customerId: selectedCustomerId }) }, [el('span', {}, '\u{1F4B0} Pay')]);
++  const payBtn = el('button', { class: 'btn btn-success', onClick: () => onPay?.({ discount, customerId: selectedCustomerId, phone: salePhone }) }, [el('span', {}, '\u{1F4B0} Pay')]);
+ 
+-  const whatsappBtn = el('button', { class: 'btn btn-whatsapp', title: 'Send bill to WhatsApp', onClick: async () => {
++  const whatsappBtn = el('button', { class: 'btn btn-whatsapp', title: 'Send bill to WhatsApp', onClick: async (e) => {
++    const btn = e.currentTarget; // must be read before any await
+     if (cartManager.getLines().length === 0) { notification.error('Cart is empty.'); return; }
+ 
+-    let phone = '';
+-    if (selectedCustomerId) {
+-      try {
+-        const customer = await apiClient.get(`/customers/${selectedCustomerId}`);
+-        phone = customer.phone || '';
+-      } catch (err) {
+-        // fall through to manual entry
+-      }
+-    }
+-    if (!phone) {
+-      phone = await promptModal('Customer WhatsApp number (with country code, e.g. 15551234567):', '');
+-      if (phone === null) return;
+-    }
++    // Number comes from the selected customer's saved phone; only
++    // asked for when there isn't one (then remembered for this sale).
++    const phone = await getWhatsAppPhone({ customerId: selectedCustomerId || null, knownPhone: salePhone });
++    if (!phone) return;
++    salePhone = phone;
+ 
+     const symbol = settingsStore.getCurrencySymbol();
+     const lines = cartManager.getLines();
+     const profile = settingsStore.getProfile();
+-    const message = [
+-      `*${profile.storeName || 'Xeoscape'}* -- Your Bill`,
+-      '',
+-      ...lines.map((l) => `${l.product.name} x${l.quantity} - ${formatMoney(l.product.price * l.quantity, symbol)}`),
+-      '',
+-      discount > 0 ? `Discount: ${formatMoney(discount, symbol)}` : null,
+-      `*Total: ${formatMoney(computeGross(), symbol)}*`,
+-      '',
+-      'Thank you for your business!'
+-    ].filter(Boolean).join('\n');
+-
+-    openWhatsApp(phone, message);
++    const total = computeGross();
++    const afterDiscount = Math.max(cartManager.getSubtotal() - discount, 0);
++    const taxAmount = Number((total - afterDiscount).toFixed(2));
++    const message = buildBillMessage({
++      profile,
++      symbol,
++      title: 'Bill',
++      items: lines.map((l) => ({ name: l.product.name, quantity: l.quantity, lineTotal: l.product.price * l.quantity })),
++      subtotal: cartManager.getSubtotal(),
++      discount,
++      taxAmount,
++      taxPercentage: profile.chargeTax ? (profile.taxPercentage || 0) : 0,
++      total
++    });
++
++    btn.disabled = true;
++    try {
++      await sendBillOnWhatsApp({
++        phone,
++        message,
++        customerName: customerSelect.selectedOptions[0]?.textContent === 'Walk in customer' ? '' : customerSelect.selectedOptions[0]?.textContent,
++        storeName: profile.storeName || 'Xeoscape',
++        totalText: formatMoney(total, symbol)
++      });
++    } finally {
++      btn.disabled = false;
++    }
+   } }, [el('span', {}, '\u{1F4AC} WhatsApp')]);
+ 
+   container.appendChild(el('div', { class: 'cart-panel' }, [
+@@ -208,6 +223,7 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
+         ]));
+       });
+     }
++    if (lines.length === 0) salePhone = '';
+     totalItemsEl.textContent = String(lines.reduce((s, l) => s + l.quantity, 0));
+     priceEl.textContent = formatMoney(subtotal, settingsStore.getCurrencySymbol());
+     grossPriceEl.textContent = formatMoney(computeGross(), settingsStore.getCurrencySymbol());
+diff --git a/assets/js/modules/checkout/payment.js b/assets/js/modules/checkout/payment.js
+index 4863857..164af36 100644
+--- a/assets/js/modules/checkout/payment.js
++++ b/assets/js/modules/checkout/payment.js
+@@ -15,11 +15,16 @@ import { renderReceipt } from './receipt.js';
+ 
+ const KEYPAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0'];
+ 
+-export function openPaymentDialog({ cartManager, currentUserId, discount = 0, customerId = null, onComplete }) {
++export function openPaymentDialog({ cartManager, currentUserId, discount = 0, customerId = null, phone = '', onComplete }) {
+   const subtotal = cartManager.getSubtotal();
+   let paymentMethod = 'cash';
+   let amountTendered = '';
+   let cardInfo = '';
++  // Cash/Card open with the Payment box already filled with the full
++  // amount, so the cashier just hits Confirm. `untouched` means that
++  // value is still the auto-filled one: the first key pressed replaces
++  // it (e.g. customer hands over a bigger note), rather than appending.
++  let untouched = false;
+ 
+   const symbol = settingsStore.getCurrencySymbol();
+   const profile = settingsStore.getProfile();
+@@ -60,6 +65,11 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
+     if (creditTab) creditTab.classList.toggle('active', method === 'credit');
+     cardInfoRow.style.display = method === 'card' ? 'flex' : 'none';
+     creditHint.style.display = method === 'credit' ? 'block' : 'none';
++    // Credit starts at 0 collected (whole amount due); Cash/Card start
++    // at the full amount.
++    if (method === 'credit') { amountTendered = ''; untouched = false; }
++    else { amountTendered = String(total()); untouched = true; }
++    paymentField.value = amountTendered;
+     updateChangeBar();
+   }
+   cashTab.addEventListener('click', () => selectMethod('cash'));
+@@ -86,6 +96,7 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
+       const firstDot = v.indexOf('.');
+       if (firstDot !== -1) v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, '');
+       amountTendered = v;
++      untouched = false;
+       if (v !== e.target.value) e.target.value = v;
+       updateChangeBar();
+     },
+@@ -135,17 +146,20 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
+ 
+   // --- Keypad (mouse/touch path -- keeps the same amountTendered the keyboard path above writes to) ---
+   function pressDigit(digit) {
++    if (untouched) { amountTendered = ''; untouched = false; }
+     if (digit === '.' && amountTendered.includes('.')) return;
+     amountTendered += digit;
+     paymentField.value = amountTendered;
+     updateChangeBar();
+   }
+   function clearAll() {
++    untouched = false;
+     amountTendered = '';
+     paymentField.value = '';
+     updateChangeBar();
+   }
+   function backspace() {
++    untouched = false;
+     amountTendered = amountTendered.slice(0, -1);
+     paymentField.value = amountTendered;
+     updateChangeBar();
+@@ -204,7 +218,7 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
+       modalManager.close();
+       cartManager.clear();
+       notification.success('Sale completed.');
+-      renderReceipt(transaction);
++      renderReceipt(transaction, { phone });
+       onComplete?.(transaction);
+     } catch (err) {
+       notification.error(`Checkout failed: ${err.message}`);
+@@ -220,5 +234,9 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
+     ]
+   });
+ 
++  // Pre-fill the amount (Cash is the default tab).
++  amountTendered = String(total());
++  untouched = true;
++  paymentField.value = amountTendered;
+   updateChangeBar();
+ }
+diff --git a/assets/js/modules/checkout/receipt.js b/assets/js/modules/checkout/receipt.js
+index 37eb2b9..b03b3e9 100644
+--- a/assets/js/modules/checkout/receipt.js
++++ b/assets/js/modules/checkout/receipt.js
+@@ -11,11 +11,11 @@ import { el } from '../../shared/utils.js';
+ import { formatMoney, formatDate } from '../../shared/formatters.js';
+ import settingsStore from '../../shared/settings-store.js';
+ import modalManager from '../../ui/modal-manager.js';
+-import apiClient from '../../shared/api-client.js';
+-import { openWhatsApp } from '../../shared/whatsapp.js';
+-import { promptModal } from '../../ui/prompt.js';
++import { getWhatsAppPhone, sendBillOnWhatsApp } from '../../shared/whatsapp.js';
++import { buildBillMessage } from '../../shared/bill-message.js';
+ import notification from '../../ui/notification.js';
+ import { printHtml } from '../../shared/print-utils.js';
++import apiClient from '../../shared/api-client.js';
+ 
+ function escapeHtml(text) {
+   return String(text ?? '').replace(/[&<>"']/g, (ch) => ({
+@@ -29,33 +29,90 @@ function escapeHtml(text) {
+ // shared/print-utils.js) rather than loading the app's full
+ // stylesheet.
+ //
+-// Sized for an 80mm thermal receipt roll -- the common width for
+-// retail POS receipt printers (the other common size is 58mm; change
+-// RECEIPT_PAPER_WIDTH_MM below if this shop's printer uses that
+-// instead). Page height is left as "auto" since thermal rolls are
+-// continuous-feed, not cut to a fixed page length -- the printer just
+-// feeds and cuts after however much the receipt actually needs.
+-const RECEIPT_PAPER_WIDTH_MM = 80;
++// Sized for a thermal receipt roll. The roll width and a left/right
++// nudge come from Settings -> Store Profile -> Receipt printing (see
++// receiptPrintOptions below); the page HEIGHT is measured from the
++// content by shared/print-utils.js, so the printer feeds only as much
++// paper as the receipt needs.
++//
++// Deliberately NO width on html/body and NO @page rule here: this CSS
++// is spliced into the live app page while printing, so a fixed body
++// width squeezed the whole app window, and the page size is now set
++// (with the measured height) by printHtml().
++//
++// Content sits in a box a few mm narrower than the paper: thermal
++// printers can't print to the very edge (an "80mm" roll typically
++// prints 72mm), so anything wider than that gets its left/right
++// characters cut off.
+ const RECEIPT_PRINT_CSS = `
+-  * { box-sizing: border-box; }
+-  html, body { margin: 0; padding: 0; width: ${RECEIPT_PAPER_WIDTH_MM}mm; }
+-  body { font-family: 'Courier New', monospace; color: #36404a; }
+-  .receipt { width: 100%; padding: 3mm 4mm; }
++  #app-print-area, #app-print-area * { box-sizing: border-box; }
++  .receipt { width: 100%; padding: 3mm 4mm; font-family: 'Courier New', monospace; color: #000; overflow: hidden; }
+   .receipt-shop-header { text-align: center; margin-bottom: 0.4rem; }
+   .receipt-logo { max-width: 100%; max-height: 40px; margin: 0 auto 0.25rem; display: block; }
+   .receipt-store-name { font-weight: 700; font-size: 0.95rem; }
+-  .receipt-tagline { font-size: 0.68rem; color: #75798b; margin-bottom: 0.15rem; }
+-  .receipt-address { font-size: 0.62rem; color: #75798b; line-height: 1.3; }
++  .receipt-tagline { font-size: 0.68rem; color: #000; margin-bottom: 0.15rem; }
++  .receipt-address { font-size: 0.68rem; color: #000; line-height: 1.3; }
+   .receipt-header { text-align: center; margin-bottom: 0.4rem; font-size: 0.72rem; }
+   .receipt-header div:first-child { font-weight: 700; }
+   .receipt-line, .receipt-totals div { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.72rem; }
+   .receipt-line span:first-child { word-break: break-word; }
+-  .receipt-total-line { font-weight: 700; font-size: 0.85rem; border-top: 1px dashed #5fbeaa; margin-top: 0.3rem; padding-top: 0.3rem; }
++  .receipt-total-line { font-weight: 700; font-size: 0.85rem; border-top: 1px dashed #000; margin-top: 0.3rem; padding-top: 0.3rem; }
+   .receipt-payment { margin-top: 0.3rem; font-size: 0.72rem; }
+-  .receipt-footer { margin-top: 0.5rem; padding-top: 0.4rem; border-top: 1px dashed #dbdde3; text-align: center; font-size: 0.65rem; color: #75798b; }
+-  @page { size: ${RECEIPT_PAPER_WIDTH_MM}mm auto; margin: 0; }
++  .receipt-footer { margin-top: 0.5rem; padding-top: 0.4rem; border-top: 1px dashed #000; text-align: center; font-size: 0.65rem; color: #000; }
+ `;
+ 
++/**
++ * Plain-data version of a receipt for the backend's direct (ESC/POS)
++ * printing -- see api/print.js.
++ */
++function printModel({ title, date, items, subtotal, discount, taxAmount, taxPercentage, total, paymentMethod, dueAmount }) {
++  const profile = settingsStore.getProfile();
++  return {
++    storeName: profile.storeName, tagline: profile.tagline,
++    addressLines: [profile.addressLine1, profile.addressLine2],
++    phone: profile.contactNumber, gstin: profile.taxId,
++    title, date: formatDate(date || new Date().toISOString()),
++    items: items.map((li) => ({ name: li.name, quantity: li.quantity, lineTotal: li.lineTotal })),
++    subtotal, discount, taxAmount, taxPercentage, total, paymentMethod, dueAmount,
++    footer: profile.receiptFooter, currencySymbol: settingsStore.getCurrencySymbol()
++  };
++}
++
++/**
++ * Prints via the method chosen in Settings: "direct" sends ESC/POS
++ * straight to the printer; anything else (or a direct-print failure)
++ * uses the normal print window.
++ */
++async function printReceiptOrPreview(model, buildHtml) {
++  if (settingsStore.getProfile().receiptPrintMethod === 'direct') {
++    try {
++      await apiClient.post('/print/receipt', { receipt: model });
++      notification.success('Sent to printer.');
++      return;
++    } catch (err) {
++      notification.error(`Direct print failed (${err.message}). Opening the print window instead.`);
++    }
++  }
++  await printHtml(buildHtml(), receiptPrintOptions());
++}
++
++// Paper roll width (mm) and sideways nudge from the store profile.
++// Presets: 58 / 80 mm receipt rolls, 76 (3 in) and 101.6 (4 in) label-
++// printer rolls -- but any width can be typed in Settings, since
++// adjustable label printers (e.g. BluPrints Unnati, 1-4 in) take
++// whatever roll is loaded.
++export const RECEIPT_PAPER_WIDTHS_MM = [58, 76, 80, 101.6];
++export function receiptPrintOptions(overrides = {}) {
++  const profile = settingsStore.getProfile();
++  // Clamped so a typo (e.g. 800) can't produce a absurd page.
++  const width = Math.min(Math.max(Number(overrides.paperWidthMm ?? profile.receiptPaperWidthMm) || 80, 30), 120);
++  const shift = Number(overrides.shiftMm ?? profile.receiptShiftMm) || 0;
++  // Usable width = paper minus 8mm (4mm each side) -- see note above.
++  const tailRaw = overrides.tailMm ?? profile.receiptTailMm;
++  const tail = Math.min(Math.max(Number.isFinite(Number(tailRaw)) && tailRaw !== '' && tailRaw != null ? Number(tailRaw) : 8, 0), 60);
++  return { pageWidthMm: width, offsetXmm: shift, tailMm: tail };
++}
++
+ function receiptHeaderHtml(profile) {
+   return `
+     <div class="receipt-shop-header">
+@@ -97,6 +154,7 @@ function buildReceiptPrintHtml(transaction) {
+     <div class="receipt-totals">
+       <div>Subtotal: ${escapeHtml(formatMoney(transaction.subtotal, symbol))}</div>
+       <div>Discount: ${escapeHtml(formatMoney(transaction.discount, symbol))}</div>
++      ${transaction.taxAmount > 0 ? `<div>GST (${escapeHtml(transaction.taxPercentage)}%): ${escapeHtml(formatMoney(transaction.taxAmount, symbol))}</div>` : ''}
+       <div class="receipt-total-line">Total: ${escapeHtml(formatMoney(transaction.total, symbol))}</div>
+     </div>
+     <div class="receipt-payment">Paid via ${escapeHtml(transaction.paymentMethod)}</div>
+@@ -156,7 +214,7 @@ function renderReceiptHeader(profile) {
+   ]);
+ }
+ 
+-export function renderReceipt(transaction) {
++export function renderReceipt(transaction, { phone: knownPhone = '' } = {}) {
+   const symbol = settingsStore.getCurrencySymbol();
+   const profile = settingsStore.getProfile();
+ 
+@@ -176,6 +234,7 @@ export function renderReceipt(transaction) {
+     el('div', { class: 'receipt-totals' }, [
+       el('div', {}, `Subtotal: ${formatMoney(transaction.subtotal, symbol)}`),
+       el('div', {}, `Discount: ${formatMoney(transaction.discount, symbol)}`),
++      transaction.taxAmount > 0 ? el('div', {}, `GST (${transaction.taxPercentage}%): ${formatMoney(transaction.taxAmount, symbol)}`) : null,
+       el('div', { class: 'receipt-total-line' }, `Total: ${formatMoney(transaction.total, symbol)}`)
+     ]),
+     el('div', { class: 'receipt-payment' }, `Paid via ${transaction.paymentMethod}`),
+@@ -196,41 +255,51 @@ export function renderReceipt(transaction) {
+         // @media print rules of its own, so a bare window.print() on
+         // the main window would print whatever else happened to be on
+         // screen along with the receipt).
+-        onClick: () => printHtml(buildReceiptPrintHtml(transaction)).catch((err) => notification.error(`Print failed: ${err.message}`))
++        onClick: () => printReceiptOrPreview(printModel({ ...transaction, title: 'Receipt', date: transaction.createdAt }), () => buildReceiptPrintHtml(transaction)).catch((err) => notification.error(`Print failed: ${err.message}`))
+       },
+       {
+         label: '\u{1F4AC} WhatsApp',
+         className: 'btn-whatsapp',
+         closeOnClick: false,
+-        onClick: async () => {
+-          let phone = '';
+-          if (transaction.customerId) {
+-            try {
+-              const customer = await apiClient.get(`/customers/${transaction.customerId}`);
+-              phone = customer.phone || '';
+-            } catch (err) {
+-              // fall through to manual entry
+-            }
++        onClick: async (e) => {
++          const btn = e.currentTarget; // must be read before any await
++          // Customer's saved number, else the one typed on the POS
++          // screen for this sale, else ask (and remember it).
++          const receiptOverlay = modalManager.overlay;
++          const phone = await getWhatsAppPhone({ customerId: transaction.customerId || null, knownPhone });
++          // Asking for a number swaps this receipt out for the prompt
++          // (only one modal at a time) -- bring the receipt back.
++          if (receiptOverlay && !document.body.contains(receiptOverlay)) {
++            renderReceipt(transaction, { phone: phone || knownPhone });
+           }
+-          if (!phone) {
+-            phone = await promptModal('Customer WhatsApp number (with country code):', '');
+-            if (phone === null) return;
++          if (!phone) return;
++          knownPhone = phone;
++          const message = buildBillMessage({
++            profile,
++            symbol,
++            title: 'Receipt',
++            date: transaction.createdAt,
++            items: transaction.items,
++            subtotal: transaction.subtotal,
++            discount: transaction.discount,
++            taxAmount: transaction.taxAmount,
++            taxPercentage: transaction.taxPercentage,
++            total: transaction.total,
++            paymentMethod: transaction.paymentMethod,
++            dueAmount: transaction.dueAmount
++          });
++          if (btn) btn.disabled = true;
++          try {
++            await sendBillOnWhatsApp({
++              phone,
++              message,
++              customerName: transaction.customerName || '',
++              storeName: profile.storeName || 'Xeoscape',
++              totalText: formatMoney(transaction.total, symbol)
++            });
++          } finally {
++            if (btn) btn.disabled = false;
+           }
+-          const message = [
+-            `*${profile.storeName || 'Xeoscape'}* -- Receipt`,
+-            formatDate(transaction.createdAt),
+-            '',
+-            ...transaction.items.map((li) => `${li.name} x${li.quantity} - ${formatMoney(li.lineTotal, symbol)}`),
+-            '',
+-            `Subtotal: ${formatMoney(transaction.subtotal, symbol)}`,
+-            transaction.discount > 0 ? `Discount: ${formatMoney(transaction.discount, symbol)}` : null,
+-            `*Total: ${formatMoney(transaction.total, symbol)}*`,
+-            `Paid via ${transaction.paymentMethod}`,
+-            '',
+-            profile.receiptFooter || 'Thank you for your business!'
+-          ].filter(Boolean).join('\n');
+-          openWhatsApp(phone, message);
+-          notification.success('Opening WhatsApp...');
+         }
+       },
+       { label: 'Close', className: 'btn-primary' }
+@@ -277,8 +346,33 @@ export function renderOrderPreview({ lines = [], discount = 0, total = 0 }) {
+     title: 'Order Preview',
+     content: preview,
+     actions: [
+-      { label: 'Print', className: 'btn-secondary', closeOnClick: false, onClick: () => printHtml(buildOrderPreviewPrintHtml({ lines, discount, total })).catch((err) => notification.error(`Print failed: ${err.message}`)) },
++      { label: 'Print', className: 'btn-secondary', closeOnClick: false, onClick: () => printReceiptOrPreview(printModel({ title: 'Order Preview (unpaid)', items: lines.map((l) => ({ name: l.product.name, quantity: l.quantity, lineTotal: l.product.price * l.quantity })), subtotal: lines.reduce((sum, l) => sum + l.product.price * l.quantity, 0), discount, total }), () => buildOrderPreviewPrintHtml({ lines, discount, total })).catch((err) => notification.error(`Print failed: ${err.message}`)) },
+       { label: 'Close', className: 'btn-primary' }
+     ]
+   });
+ }
++
++/**
++ * Prints a sample receipt using the given (or saved) paper width /
++ * shift, so the shop can line the printout up from Settings without
++ * ringing up a sale each time.
++ */
++export function printTestReceipt(overrides = {}) {
++  if (overrides.method === 'direct') {
++    return apiClient.post('/print/test', {
++      printerName: overrides.printerName, paperWidthMm: overrides.paperWidthMm,
++      shiftMm: overrides.shiftMm, tailMm: overrides.tailMm
++    }).then(() => notification.success('Test receipt sent to printer.'));
++  }
++  const now = new Date().toISOString();
++  const sample = {
++    createdAt: now,
++    items: [
++      { name: 'Test T-Shirt', quantity: 1, lineTotal: 299 },
++      { name: 'Test Frock (long item name)', quantity: 2, lineTotal: 1198 }
++    ],
++    subtotal: 1497, discount: 0, taxAmount: 269.46, taxPercentage: 18, total: 1766.46,
++    paymentMethod: 'cash'
++  };
++  return printHtml(buildReceiptPrintHtml(sample), receiptPrintOptions(overrides));
++}
+diff --git a/assets/js/modules/settings/settings-page.js b/assets/js/modules/settings/settings-page.js
+index c77f189..c933034 100644
+--- a/assets/js/modules/settings/settings-page.js
++++ b/assets/js/modules/settings/settings-page.js
+@@ -32,7 +32,7 @@ const SECTIONS = [
+   { id: 'bulk-import', label: 'Bulk Product Import', mount: mountBulkImport },
+   { id: 'quick-scan-add', label: 'Quick Scan Add', mount: mountQuickScanAdd },
+   { id: 'barcode-labels', label: 'Barcode Labels', mount: mountBarcodeLabels },
+-  { id: 'whatsapp-reminders', label: 'WhatsApp Reminders', mount: mountWhatsAppReminders },
++  { id: 'whatsapp-reminders', label: 'WhatsApp', mount: mountWhatsAppReminders },
+   { id: 'due-outstanding-report', label: 'Due / Outstanding Report', mount: mountDueOutstandingReport },
+   { id: 'report-generator', label: 'Report Generator', mount: mountReportGenerator },
+   { id: 'product-performance', label: 'Product Performance (ABC)', mount: mountProductPerformance },
+diff --git a/assets/js/modules/settings/store-profile.js b/assets/js/modules/settings/store-profile.js
+index f45dd41..9141938 100644
+--- a/assets/js/modules/settings/store-profile.js
++++ b/assets/js/modules/settings/store-profile.js
+@@ -7,6 +7,7 @@ import apiClient from '../../shared/api-client.js';
+ import { el } from '../../shared/utils.js';
+ import settingsStore from '../../shared/settings-store.js';
+ import notification from '../../ui/notification.js';
++import { printTestReceipt, RECEIPT_PAPER_WIDTHS_MM } from '../checkout/receipt.js';
+ 
+ export async function mountStoreProfile(container) {
+   container.appendChild(el('h3', {}, 'Store Profile'));
+@@ -178,6 +179,68 @@ export async function mountStoreProfile(container) {
+         el('p', { class: 'settings-hint' }, 'A short note printed at the bottom of every receipt \u2014 e.g. a thank-you message, return policy, or store hours.')
+       ]);
+     })(),
++    (() => {
++      // Free entry (with common presets) rather than a fixed list:
++      // adjustable label printers print on whatever width roll is
++      // loaded, so measure the paper and type it in.
++      const paper = el('input', {
++        type: 'number', min: '30', max: '120', step: '0.1', list: 'receipt-paper-presets',
++        value: values.receiptPaperWidthMm || 80,
++        onInput: (e) => { values.receiptPaperWidthMm = Number(e.target.value) || 80; }
++      });
++      const presets = el('datalist', { id: 'receipt-paper-presets' },
++        RECEIPT_PAPER_WIDTHS_MM.map((w) => el('option', { value: String(w) })));
++      const shift = el('input', {
++        type: 'number', step: '0.5', value: values.receiptShiftMm ?? 0,
++        onInput: (e) => { values.receiptShiftMm = Number(e.target.value) || 0; }
++      });
++      const tail = el('input', {
++        type: 'number', min: '0', max: '60', step: '1', value: values.receiptTailMm ?? 8,
++        onInput: (e) => { values.receiptTailMm = Number(e.target.value) || 0; }
++      });
++      // Print method + printer (for "Direct print").
++      const printerSelect = el('select', {
++        onChange: (e) => { values.receiptPrinterName = e.target.value; }
++      }, [el('option', { value: values.receiptPrinterName || '' }, values.receiptPrinterName || 'Loading printers...')]);
++      apiClient.get('/print/printers').then(({ printers = [], supported }) => {
++        printerSelect.innerHTML = '';
++        if (!supported) {
++          printerSelect.appendChild(el('option', { value: '' }, 'Direct print needs Windows'));
++          return;
++        }
++        printerSelect.appendChild(el('option', { value: '' }, '\u2014 choose printer \u2014'));
++        printers.forEach((p) => printerSelect.appendChild(el('option', {
++          value: p.name,
++          ...(p.name === values.receiptPrinterName ? { selected: 'selected' } : {})
++        }, p.name + (p.isDefault ? ' (default)' : ''))));
++      }).catch(() => { printerSelect.innerHTML = ''; printerSelect.appendChild(el('option', { value: '' }, 'Could not list printers')); });
++      const methodSelect = el('select', {
++        onChange: (e) => { values.receiptPrintMethod = e.target.value; }
++      }, [
++        el('option', { value: 'dialog', ...((values.receiptPrintMethod || 'dialog') === 'dialog' ? { selected: 'selected' } : {}) }, 'Windows print window (default)'),
++        el('option', { value: 'direct', ...(values.receiptPrintMethod === 'direct' ? { selected: 'selected' } : {}) }, 'Direct print to printer (ESC/POS) \u2014 no blank feed')
++      ]);
++      return el('div', { class: 'settings-section' }, [
++        el('h4', {}, 'Receipt printing'),
++        el('div', { class: 'form-field' }, [el('label', {}, 'Print method'), methodSelect]),
++        el('div', { class: 'form-field' }, [el('label', {}, 'Printer (used by Direct print)'), printerSelect]),
++        el('p', { class: 'settings-hint' },
++          'Direct print sends the receipt as plain text straight to the printer, skipping the Windows print window and the driver\u2019s page/label handling. ' +
++          'It prints text only (no logo) and writes the rupee sign as \u201CRs.\u201D. If it fails, the normal print window opens instead.'),
++        el('div', { class: 'form-field' }, [el('label', {}, 'Paper roll width (mm) \u2014 measure the paper; 58, 76 (3 in), 80 or 101.6 (4 in)'), paper, presets]),
++        el('div', { class: 'form-field' }, [el('label', {}, 'Shift receipt sideways (mm, negative = left)'), shift]),
++        el('div', { class: 'form-field' }, [el('label', {}, 'Blank paper after the receipt (mm) \u2014 raise to 15\u201320 if you tear it off by hand'), tail]),
++        el('p', { class: 'settings-hint' },
++          'Enter the width of the paper actually loaded in the printer. The receipt is cut to exactly its own length, so no blank paper is fed. ' +
++          'If the left or right edge is still cut off, use the shift box (e.g. 4 or -4) and press Print test receipt. ' +
++          'In the print window also set Margins = None and Scale = 100% / Actual size, and choose the same paper width there.'),
++        el('button', {
++          class: 'btn btn-secondary', type: 'button',
++          onClick: () => printTestReceipt({ method: values.receiptPrintMethod, printerName: values.receiptPrinterName, paperWidthMm: values.receiptPaperWidthMm, shiftMm: values.receiptShiftMm, tailMm: values.receiptTailMm })
++            .catch((err) => notification.error(`Print failed: ${err.message}`))
++        }, 'Print test receipt')
++      ]);
++    })(),
+     el('button', {
+       class: 'btn btn-primary',
+       onClick: async () => {
+diff --git a/assets/js/modules/settings/whatsapp-reminders.js b/assets/js/modules/settings/whatsapp-reminders.js
+index 393dcb4..a1bd7b2 100644
+--- a/assets/js/modules/settings/whatsapp-reminders.js
++++ b/assets/js/modules/settings/whatsapp-reminders.js
+@@ -1,9 +1,9 @@
+ // assets/js/modules/settings/whatsapp-reminders.js
+-// "WhatsApp Reminders" settings section: configure Twilio's WhatsApp
+-// API and send credit/due-balance reminders to customers. Only
+-// available when credit sales are switched on -- due/credit payment
+-// itself is gated the same way (see
+-// core/transaction-manager.js), so reminders about it are too.
++// "WhatsApp" settings section: configure Twilio's WhatsApp API. That
++// one connection powers (a) sending bills/receipts straight from the
++// POS screen and (b) credit/due-balance reminders. The connection is
++// always configurable; the reminder part only shows when credit sales
++// are switched on (see core/transaction-manager.js).
+ 
+ import apiClient from '../../shared/api-client.js';
+ import { el } from '../../shared/utils.js';
+@@ -11,20 +11,14 @@ import settingsStore from '../../shared/settings-store.js';
+ import notification from '../../ui/notification.js';
+ 
+ export async function mountWhatsAppReminders(container) {
+-  container.appendChild(el('h3', {}, 'WhatsApp Reminders'));
+-
+-  if (!settingsStore.isCreditEnabled()) {
+-    container.appendChild(el('p', { class: 'settings-hint' },
+-      'WhatsApp payment reminders need credit sales turned on (they chase the outstanding balances that feature creates). ' +
+-      'Tick "Allow credit / due sales" in Settings \u2192 Store Profile to use this.'
+-    ));
+-    return;
+-  }
++  container.appendChild(el('h3', {}, 'WhatsApp'));
+ 
+   container.appendChild(el('p', { class: 'settings-hint' },
+-    'Sends a WhatsApp message via Twilio reminding a customer about their outstanding balance. ' +
+-    'Important: WhatsApp requires business-initiated messages to use a pre-approved Message Template, not free text ' +
+-    '(see twilio.com/docs/whatsapp/api) -- without a Template SID below, sending only works in Twilio\u2019s WhatsApp Sandbox for testing, not for real unprompted reminders.'
++    'Connects the app to WhatsApp (via Twilio) so the WhatsApp button on the POS screen and receipt sends the bill directly ' +
++    'from the app, without opening WhatsApp. Until this is set up and enabled, that button falls back to opening WhatsApp. ' +
++    'Note: WhatsApp requires business-initiated messages to use a pre-approved Message Template ' +
++    '(see twilio.com/docs/whatsapp/api) -- without Template SIDs below, sending only works in Twilio\u2019s WhatsApp Sandbox for testing, ' +
++    'or within 24 hours of the customer messaging your number first.'
+   ));
+ 
+   const settings = await apiClient.get('/whatsapp/settings');
+@@ -56,18 +50,28 @@ export async function mountWhatsAppReminders(container) {
+ 
+   container.appendChild(el('div', { class: 'settings-section' }, [
+     el('h4', {}, 'Twilio Connection'),
+-    el('div', { class: 'form-field' }, [el('label', { class: 'perm-checkbox' }, [enabledCheckbox, ' Enable WhatsApp reminders'])]),
++    el('div', { class: 'form-field' }, [el('label', { class: 'perm-checkbox' }, [enabledCheckbox, ' Enable sending from the app (bills and reminders)'])]),
+     field('accountSid', 'Account SID', { placeholder: 'AC...' }),
+     el('div', { class: 'form-field' }, [el('label', {}, 'Auth Token'), authTokenInput]),
+     field('fromNumber', 'From Number', { placeholder: 'whatsapp:+14155238886' }),
+-    field('contentSid', 'Message Template SID (recommended for production)', { placeholder: 'HX... (optional)' })
++    field('defaultCountryCode', 'Default country code (added to 10-digit numbers)', { placeholder: '91' }),
++    field('billContentSid', 'Bill Template SID (optional; variables: 1 = customer name, 2 = store name, 3 = total)', { placeholder: 'HX... (optional)' }),
++    field('contentSid', 'Reminder Template SID (optional; variables: 1 = name, 2 = amount)', { placeholder: 'HX... (optional)' })
+   ]));
+ 
+-  container.appendChild(el('div', { class: 'settings-section' }, [
+-    el('h4', {}, 'Reminder Message'),
+-    el('p', { class: 'settings-hint' }, 'Used only when no Template SID is set above. Placeholders: {{name}}, {{amount}}.'),
+-    templateInput
+-  ]));
++  const creditOn = settingsStore.isCreditEnabled();
++
++  if (creditOn) {
++    container.appendChild(el('div', { class: 'settings-section' }, [
++      el('h4', {}, 'Reminder Message'),
++      el('p', { class: 'settings-hint' }, 'Used only when no Reminder Template SID is set above. Placeholders: {{name}}, {{amount}}.'),
++      templateInput
++    ]));
++  } else {
++    container.appendChild(el('p', { class: 'settings-hint' },
++      'Payment reminders for outstanding balances are also available once you tick \u201CAllow credit / due sales\u201D in Settings \u2192 Store Profile.'
++    ));
++  }
+ 
+   const bulkStatus = el('p', { class: 'settings-hint' }, '');
+ 
+@@ -86,7 +90,7 @@ export async function mountWhatsAppReminders(container) {
+         }
+       }
+     }, 'Save Settings'),
+-    el('button', {
++    creditOn ? el('button', {
+       class: 'btn btn-secondary',
+       onClick: async (e) => {
+         e.target.disabled = true;
+@@ -109,7 +113,7 @@ export async function mountWhatsAppReminders(container) {
+           e.target.disabled = false;
+         }
+       }
+-    }, 'Send Reminders to All Customers with a Balance')
++    }, 'Send Reminders to All Customers with a Balance') : null
+   ]));
+   container.appendChild(bulkStatus);
+ }
+diff --git a/assets/js/shared/bill-message.js b/assets/js/shared/bill-message.js
+new file mode 100644
+index 0000000..165d698
+--- /dev/null
++++ b/assets/js/shared/bill-message.js
+@@ -0,0 +1,68 @@
++// assets/js/shared/bill-message.js
++// Builds the WhatsApp bill text so it mirrors the on-screen / printed
++// receipt: shop header (name, tagline, address, phone, GSTIN), date,
++// item lines, Subtotal / Discount / GST / Total, payment line, footer.
++// Used by both the POS panel's WhatsApp button (unpaid bill) and the
++// receipt's WhatsApp button (paid receipt), so they always match.
++//
++// Uses WhatsApp's own formatting: *bold*, _italic_.
++// (A logo can't be part of a text message -- WhatsApp only accepts
++// images as separate media attachments.)
++
++import { formatMoney, formatDate } from './formatters.js';
++
++const RULE = '\u2500'.repeat(18);
++
++/**
++ * @param {object} o
++ * @param {object} o.profile        store profile (settingsStore.getProfile())
++ * @param {string} o.symbol         currency symbol
++ * @param {Array<{name:string, quantity:number, lineTotal:number}>} o.items
++ * @param {string|Date} [o.date]
++ * @param {number} o.subtotal
++ * @param {number} [o.discount]
++ * @param {number} [o.taxAmount]
++ * @param {number} [o.taxPercentage]
++ * @param {number} o.total
++ * @param {string} [o.paymentMethod]  omit for an unpaid bill
++ * @param {number} [o.dueAmount]
++ * @param {string} [o.title]
++ */
++export function buildBillMessage({
++  profile = {}, symbol = '', items = [], date = new Date(), subtotal = 0, discount = 0,
++  taxAmount = 0, taxPercentage = 0, total = 0, paymentMethod = null, dueAmount = 0, title = 'Bill'
++}) {
++  const money = (n) => formatMoney(n, symbol);
++
++  const header = [
++    `*${profile.storeName || 'Xeoscape'}*`,
++    profile.tagline ? `_${profile.tagline}_` : null,
++    profile.addressLine1 || null,
++    profile.addressLine2 || null,
++    profile.contactNumber ? `Ph: ${profile.contactNumber}` : null,
++    profile.taxId ? `GSTIN: ${profile.taxId}` : null
++  ].filter(Boolean);
++
++  const lines = items.map((li, i) => {
++    const qty = Number(li.quantity) || 1;
++    const each = qty > 1 ? ` (${money(li.lineTotal / qty)} each)` : '';
++    return `${i + 1}. ${li.name} x${qty}${each}\n     ${money(li.lineTotal)}`;
++  });
++
++  return [
++    ...header,
++    RULE,
++    `*${title}*  \u2022  ${formatDate(date)}`,
++    RULE,
++    ...lines,
++    RULE,
++    `Subtotal: ${money(subtotal)}`,
++    discount > 0 ? `Discount: -${money(discount)}` : null,
++    taxAmount > 0 ? `GST (${taxPercentage}%): ${money(taxAmount)}` : null,
++    `*Total: ${money(total)}*`,
++    paymentMethod ? `Paid via ${paymentMethod}` : null,
++    dueAmount > 0 ? `*Balance due: ${money(dueAmount)}*` : null,
++    RULE,
++    `_${profile.receiptFooter || 'Thank you for your business!'}_`
++  ].filter((l) => l !== null).join('\n');
++}
+diff --git a/assets/js/shared/print-utils.js b/assets/js/shared/print-utils.js
+index b885580..7723b76 100644
+--- a/assets/js/shared/print-utils.js
++++ b/assets/js/shared/print-utils.js
+@@ -41,6 +41,32 @@
+ let styleEl = null;
+ let containerEl = null;
+ 
++const PX_PER_MM = 96 / 25.4;
++
++/**
++ * Receipt-roll printing: builds an explicit `@page` size from the
++ * measured height of the content. `@page { size: 80mm auto }` looks
++ * like it should do this, but Chromium/WebView2 doesn't support `auto`
++ * for one dimension -- it drops the whole rule and the printer driver
++ * falls back to its default paper length, which is what feeds a metre
++ * of blank paper after a 10 cm receipt. An explicit height avoids it.
++ * `tailMm` is a little blank feed after the last line so the cutter
++ * doesn't slice through the footer.
++ */
++export function buildReceiptPageCss({ widthMm, contentHeightPx, tailMm = 8 }) {
++  const heightMm = Math.max(20, Math.ceil(contentHeightPx / PX_PER_MM + tailMm));
++  return `@page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }`;
++}
++
++function waitForImages(root, timeoutMs = 2000) {
++  const pending = Array.from(root.querySelectorAll('img')).filter((img) => !img.complete);
++  if (pending.length === 0) return Promise.resolve();
++  return Promise.race([
++    Promise.all(pending.map((img) => new Promise((r) => { img.onload = r; img.onerror = r; }))),
++    new Promise((r) => setTimeout(r, timeoutMs))
++  ]);
++}
++
+ function cleanupPrintArea() {
+   containerEl?.remove();
+   styleEl?.remove();
+@@ -67,12 +93,23 @@ function splitDocument(html) {
+  * cross-frame print scoping. See the file header for why.
+  *
+  * @param {string} html a complete HTML document (<html>...</html>)
++ * @param {object} [options]
++ * @param {number} [options.pageWidthMm] receipt-roll mode: the paper
++ *   width in mm. The page height is measured from the content, so the
++ *   printer feeds only what the receipt needs. Omit for documents that
++ *   declare their own `@page` (barcode labels).
++ * @param {number} [options.tailMm] blank paper fed after the last
++ *   line, in mm. Printers without an auto-cutter (tear-off bar sits
++ *   past the print head) need more so the tear doesn't cut the footer.
++ * @param {number} [options.offsetXmm] shifts the content sideways in
++ *   mm (negative = left) to compensate for a printer whose printable
++ *   area isn't centred on the paper.
+  * @returns {Promise<void>} resolves once the print dialog has closed
+  *   (or after a fallback timeout, if a given runtime doesn't fire
+  *   `afterprint`)
+  */
+-export function printHtml(html) {
+-  return new Promise((resolve) => {
++export function printHtml(html, { pageWidthMm = null, offsetXmm = 0, tailMm = 8 } = {}) {
++  return new Promise((resolve, reject) => {
+     // In case a previous call's cleanup was somehow skipped.
+     cleanupPrintArea();
+ 
+@@ -124,7 +161,7 @@ ${styleText}
+     display: block !important;
+     position: absolute;
+     top: 0;
+-    left: 0;
++    left: ${Number(offsetXmm) || 0}mm;
+     width: 100%;
+     margin: 0;
+   }
+@@ -134,14 +171,33 @@ ${styleText}
+     document.head.appendChild(styleEl);
+     document.body.appendChild(containerEl);
+ 
+-    // Let layout settle before printing -- calling print() in the same
+-    // tick as inserting the content can catch it mid-render.
+-    requestAnimationFrame(() => {
++    const startPrint = () => {
+       const cleanup = () => { cleanupPrintArea(); resolve(); };
+       window.addEventListener('afterprint', cleanup, { once: true });
+       // Fallback in case a given webview doesn't fire afterprint.
+       setTimeout(cleanup, 15000);
+       window.print();
++    };
++
++    // Let layout settle before printing -- calling print() in the same
++    // tick as inserting the content can catch it mid-render.
++    requestAnimationFrame(async () => {
++      try {
++        if (pageWidthMm) {
++          // Measure the receipt at its real width (off-screen, still
++          // invisible) once the logo has loaded, then declare an
++          // exact page size for it.
++          containerEl.style.cssText = `display:block;position:fixed;left:-99999px;top:0;width:${pageWidthMm}mm;visibility:hidden;`;
++          await waitForImages(containerEl);
++          const contentHeightPx = containerEl.scrollHeight;
++          containerEl.style.cssText = 'display:none;';
++          styleEl.textContent += `\n${buildReceiptPageCss({ widthMm: pageWidthMm, contentHeightPx, tailMm })}\n`;
++        }
++        startPrint();
++      } catch (err) {
++        cleanupPrintArea();
++        reject(err);
++      }
+     });
+   });
+ }
+diff --git a/assets/js/shared/whatsapp.js b/assets/js/shared/whatsapp.js
+index fdfa541..2a71a10 100644
+--- a/assets/js/shared/whatsapp.js
++++ b/assets/js/shared/whatsapp.js
+@@ -1,7 +1,19 @@
+ // assets/js/shared/whatsapp.js
+-// Builds "click to chat" WhatsApp links (https://wa.me/...) so a bill
+-// or order summary can be sent to a customer without needing the
+-// WhatsApp Business API, credentials, or a backend integration.
++// WhatsApp helpers for the POS screen and receipt.
++//
++//  - sendBillOnWhatsApp(): sends the bill straight from the app through
++//    the backend (Twilio WhatsApp API, configured in Settings ->
++//    WhatsApp) -- no WhatsApp window is opened. If that isn't set up
++//    yet, it falls back to the old wa.me "click to chat" link so the
++//    button still does something useful.
++//  - getWhatsAppPhone(): finds the number to send to -- the customer's
++//    saved number, then a number already typed for this sale, and only
++//    asks the cashier when neither exists (and saves what they type to
++//    the customer so it's never asked again).
++
++import apiClient from './api-client.js';
++import { promptModal } from '../ui/prompt.js';
++import notification from '../ui/notification.js';
+ 
+ export function buildWhatsAppUrl(phone, message) {
+   // wa.me expects digits only (with country code, no + or symbols).
+@@ -11,10 +23,76 @@ export function buildWhatsAppUrl(phone, message) {
+ 
+ /**
+  * Opens WhatsApp (desktop app, or web.whatsapp.com in the browser) with
+- * the given message pre-filled, addressed to `phone` if provided, or
+- * as a generic share link the user can forward to any contact.
++ * the given message pre-filled. Only used as a fallback now.
+  */
+ export function openWhatsApp(phone, message) {
+-  const url = buildWhatsAppUrl(phone, message);
+-  window.open(url, '_blank');
++  window.open(buildWhatsAppUrl(phone, message), '_blank');
++}
++
++/** True if the text has enough digits to plausibly be a phone number. */
++export function looksLikePhone(text) {
++  const digits = String(text || '').replace(/[^\d]/g, '');
++  return digits.length >= 10 && digits.length <= 15;
++}
++
++/**
++ * Returns the number to send to, or null if the cashier cancelled.
++ *  1. the selected customer's saved phone
++ *  2. `knownPhone` (typed earlier for this same sale)
++ *  3. ask -- and, if a customer is selected, save it on their record
++ */
++export async function getWhatsAppPhone({ customerId = null, knownPhone = '' } = {}) {
++  if (customerId) {
++    try {
++      const customer = await apiClient.get(`/customers/${customerId}`);
++      if (customer?.phone && looksLikePhone(customer.phone)) return customer.phone;
++    } catch (err) {
++      // fall through to the other sources
++    }
++  }
++  if (knownPhone && looksLikePhone(knownPhone)) return knownPhone;
++
++  let phone = '';
++  while (!looksLikePhone(phone)) {
++    const answer = await promptModal(
++      phone ? 'That number looks incomplete. Customer WhatsApp number:' : 'Customer WhatsApp number (10 digits, or with country code):',
++      phone
++    );
++    if (answer === null) return null;
++    phone = answer.trim();
++    if (!phone) return null;
++  }
++
++  if (customerId) {
++    apiClient.put(`/customers/${customerId}`, { phone }).catch(() => {});
++  }
++  return phone;
++}
++
++/**
++ * Sends the bill on WhatsApp. Resolves true if it was sent from the
++ * app, false if it fell back to opening WhatsApp (or failed).
++ */
++export async function sendBillOnWhatsApp({ phone, message, customerName = '', storeName = '', totalText = '' }) {
++  let autoSend = false;
++  try {
++    autoSend = Boolean((await apiClient.get('/whatsapp/status'))?.autoSend);
++  } catch (err) {
++    autoSend = false;
++  }
++
++  if (!autoSend) {
++    openWhatsApp(phone, message);
++    notification.warning('In-app WhatsApp sending is not set up yet (Settings \u2192 WhatsApp), so WhatsApp was opened instead.');
++    return false;
++  }
++
++  try {
++    await apiClient.post('/whatsapp/send-bill', { phone, message, customerName, storeName, totalText });
++    notification.success('Bill sent on WhatsApp.');
++    return true;
++  } catch (err) {
++    notification.error(`WhatsApp not sent: ${err.message}`);
++    return false;
++  }
+ }
+diff --git a/assets/js/ui/modal-manager.js b/assets/js/ui/modal-manager.js
+index 08f6caa..77ca329 100644
+--- a/assets/js/ui/modal-manager.js
++++ b/assets/js/ui/modal-manager.js
+@@ -16,8 +16,8 @@ class ModalManager {
+     const actionButtons = actions.map((action) =>
+       el('button', {
+         class: `btn ${action.className || 'btn-secondary'}`,
+-        onClick: () => {
+-          if (action.onClick) action.onClick();
++        onClick: (e) => {
++          if (action.onClick) action.onClick(e);
+           if (action.closeOnClick !== false) this.close();
+         }
+       }, action.label)
+diff --git a/core/escpos.js b/core/escpos.js
+new file mode 100644
+index 0000000..1e87cde
+--- /dev/null
++++ b/core/escpos.js
+@@ -0,0 +1,131 @@
++// core/escpos.js
++// Builds a plain-text receipt as ESC/POS bytes, for sending straight to
++// a thermal printer (see core/raw-printer.js) instead of going through
++// the Windows print dialog / driver.
++//
++// Why: label-style printers (e.g. BluPrints Unnati) driven through a
++// page-based Windows driver keep feeding until their sensor finds a
++// label gap -- which never comes on a continuous roll -- so every
++// receipt is followed by a long blank strip. ESC/POS has no pages: the
++// printer prints the lines it is given, feeds the amount asked for,
++// and stops.
++//
++// Text only (no logo image) and ASCII only: most printers' default code
++// page has no rupee sign, so the symbol is printed as "Rs.".
++
++const ESC = 0x1b;
++const GS = 0x1d;
++const DOTS_PER_MM = 8; // 203 dpi
++const FONT_A_DOTS = 12; // character cell width, dots
++
++/** ASCII-only text: rupee sign -> "Rs.", accents stripped, rest -> "?". */
++function toAscii(text) {
++  return String(text ?? '')
++    .replace(/\u20B9/g, 'Rs.')
++    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
++    .replace(/[\r\n\t]+/g, ' ')
++    .replace(/[^\x20-\x7e]/g, '?');
++}
++
++/** Characters per line for a roll of this width (font A). */
++function columnsFor(paperWidthMm) {
++  const printableDots = Math.min(Math.round((paperWidthMm - 4) * DOTS_PER_MM), 832);
++  return Math.max(16, Math.floor(printableDots / FONT_A_DOTS));
++}
++
++function wrap(text, width) {
++  const words = toAscii(text).split(' ').filter(Boolean);
++  const lines = [];
++  let line = '';
++  for (let word of words) {
++    while (word.length > width) { // a single over-long word
++      if (line) { lines.push(line); line = ''; }
++      lines.push(word.slice(0, width));
++      word = word.slice(width);
++    }
++    if (!line) line = word;
++    else if (line.length + 1 + word.length <= width) line += ` ${word}`;
++    else { lines.push(line); line = word; }
++  }
++  if (line) lines.push(line);
++  return lines.length ? lines : [''];
++}
++
++function money(amount, symbol) {
++  const n = Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
++  return toAscii(`${symbol || ''} ${n}`).trim();
++}
++
++/**
++ * @param {object} r receipt model: { storeName, tagline, addressLines[],
++ *   phone, gstin, title, date, items[{name,quantity,lineTotal}], subtotal,
++ *   discount, taxAmount, taxPercentage, total, paymentMethod, dueAmount,
++ *   footer, currencySymbol }
++ * @param {object} o { paperWidthMm, tailMm, shiftMm }
++ * @returns {Buffer}
++ */
++function buildReceiptBytes(r, { paperWidthMm = 80, tailMm = 8, shiftMm = 0 } = {}) {
++  const cols = columnsFor(paperWidthMm);
++  const sym = r.currencySymbol;
++  const chunks = [];
++  const raw = (...bytes) => chunks.push(Buffer.from(bytes));
++  const text = (s) => chunks.push(Buffer.from(`${toAscii(s)}\n`, 'ascii'));
++  const align = (n) => raw(ESC, 0x61, n); // 0 left, 1 centre, 2 right
++  const bold = (on) => raw(ESC, 0x45, on ? 1 : 0);
++  const size = (n) => raw(GS, 0x21, n); // 0x00 normal, 0x11 double w+h
++  const rule = () => text('-'.repeat(cols));
++  const pair = (left, right) => {
++    const l = toAscii(left);
++    const rt = toAscii(right);
++    if (l.length + 1 + rt.length <= cols) return text(l + ' '.repeat(cols - l.length - rt.length) + rt);
++    wrap(l, cols).forEach((ln) => text(ln));
++    return text(' '.repeat(Math.max(cols - rt.length, 0)) + rt);
++  };
++
++  raw(ESC, 0x40); // initialise
++  const shiftDots = Math.max(0, Math.round((Number(shiftMm) || 0) * DOTS_PER_MM));
++  if (shiftDots) raw(GS, 0x4c, shiftDots & 0xff, (shiftDots >> 8) & 0xff); // left margin
++
++  align(1);
++  bold(true); size(0x11);
++  wrap(r.storeName || '', Math.floor(cols / 2)).forEach((ln) => text(ln));
++  size(0x00); bold(false);
++  if (r.tagline) wrap(r.tagline, cols).forEach((ln) => text(ln));
++  (r.addressLines || []).filter(Boolean).forEach((a) => wrap(a, cols).forEach((ln) => text(ln)));
++  if (r.phone) text(`Ph: ${r.phone}`);
++  if (r.gstin) text(`GSTIN: ${r.gstin}`);
++  align(0);
++
++  rule();
++  align(1); bold(true); text(r.title ? `${r.title}  ${r.date || ''}`.trim() : r.date || ''); bold(false); align(0);
++  rule();
++
++  for (const li of r.items || []) {
++    pair(`${li.name} x${li.quantity}`, money(li.lineTotal, sym));
++  }
++  rule();
++  pair('Subtotal', money(r.subtotal, sym));
++  if (Number(r.discount) > 0) pair('Discount', `-${money(r.discount, sym)}`);
++  if (Number(r.taxAmount) > 0) pair(`GST (${r.taxPercentage}%)`, money(r.taxAmount, sym));
++  bold(true); size(0x01); // double height only, keeps the line within width
++  pair('TOTAL', money(r.total, sym));
++  size(0x00); bold(false);
++  if (r.paymentMethod) text(`Paid via ${r.paymentMethod}`);
++  if (Number(r.dueAmount) > 0) { bold(true); pair('Balance due', money(r.dueAmount, sym)); bold(false); }
++  rule();
++  align(1);
++  wrap(r.footer || 'Thank you for your business!', cols).forEach((ln) => text(ln));
++  align(0);
++
++  // Blank feed after the last line (so a hand tear clears the footer),
++  // in <=255-dot steps: ESC J n = print and feed n dots.
++  let feedDots = Math.round(Math.max(0, Number(tailMm) || 0) * DOTS_PER_MM);
++  while (feedDots > 0) {
++    const step = Math.min(feedDots, 255);
++    raw(ESC, 0x4a, step);
++    feedDots -= step;
++  }
++  return Buffer.concat(chunks);
++}
++
++module.exports = { buildReceiptBytes, columnsFor, toAscii };
+diff --git a/core/raw-printer.js b/core/raw-printer.js
+new file mode 100644
+index 0000000..4cce935
+--- /dev/null
++++ b/core/raw-printer.js
+@@ -0,0 +1,105 @@
++// core/raw-printer.js
++// Sends raw bytes (ESC/POS) straight to a Windows printer queue,
++// bypassing the print dialog and the driver's page handling. Uses
++// PowerShell + the Windows print spooler (winspool.drv, datatype RAW),
++// so it needs no native Node modules and works inside the packaged
++// backend. Windows only.
++
++const childProcess = require('child_process');
++const fs = require('fs');
++const os = require('os');
++const path = require('path');
++
++const SEND_SCRIPT = `param([string]$Printer, [string]$DataFile)
++$src = @"
++using System;
++using System.Runtime.InteropServices;
++public class RawPrn {
++  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
++  public class DOCINFOA {
++    [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
++    [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
++    [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
++  }
++  [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true)]
++  public static extern bool OpenPrinter(string src, out IntPtr h, IntPtr pd);
++  [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true, ExactSpelling = true)]
++  public static extern bool ClosePrinter(IntPtr h);
++  [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true)]
++  public static extern bool StartDocPrinter(IntPtr h, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
++  [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true, ExactSpelling = true)]
++  public static extern bool EndDocPrinter(IntPtr h);
++  [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true, ExactSpelling = true)]
++  public static extern bool StartPagePrinter(IntPtr h);
++  [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true, ExactSpelling = true)]
++  public static extern bool EndPagePrinter(IntPtr h);
++  [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true, ExactSpelling = true)]
++  public static extern bool WritePrinter(IntPtr h, IntPtr bytes, Int32 count, out Int32 written);
++  public static bool Send(string printer, byte[] data) {
++    IntPtr h; if (!OpenPrinter(printer, out h, IntPtr.Zero)) return false;
++    DOCINFOA di = new DOCINFOA(); di.pDocName = "Xeoscape receipt"; di.pDataType = "RAW";
++    bool ok = false;
++    if (StartDocPrinter(h, 1, di)) {
++      if (StartPagePrinter(h)) {
++        IntPtr p = Marshal.AllocCoTaskMem(data.Length);
++        Marshal.Copy(data, 0, p, data.Length);
++        Int32 w; ok = WritePrinter(h, p, data.Length, out w);
++        Marshal.FreeCoTaskMem(p);
++        EndPagePrinter(h);
++      }
++      EndDocPrinter(h);
++    }
++    ClosePrinter(h);
++    return ok;
++  }
++}
++"@
++Add-Type -TypeDefinition $src
++$bytes = [System.IO.File]::ReadAllBytes($DataFile)
++if (-not [RawPrn]::Send($Printer, $bytes)) { [Console]::Error.WriteLine("Could not send data to printer '$Printer'. Check the name and that it is connected."); exit 1 }
++`;
++
++function createRawPrinter({ execFile = childProcess.execFile, platform = process.platform, tmpDir = os.tmpdir() } = {}) {
++  const PS_ARGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass'];
++
++  function run(args) {
++    return new Promise((resolve, reject) => {
++      execFile('powershell.exe', [...PS_ARGS, ...args], { windowsHide: true, timeout: 20000 }, (err, stdout, stderr) => {
++        if (err) return reject(new Error((stderr || err.message || '').toString().trim() || 'PowerShell failed'));
++        resolve(String(stdout));
++      });
++    });
++  }
++
++  function assertSupported() {
++    if (platform !== 'win32') throw new Error('Direct printing is only available on Windows.');
++  }
++
++  async function listPrinters() {
++    assertSupported();
++    const out = await run(['-Command', 'Get-CimInstance Win32_Printer | Select-Object Name,Default | ConvertTo-Json -Compress']);
++    if (!out.trim()) return [];
++    const parsed = JSON.parse(out);
++    return (Array.isArray(parsed) ? parsed : [parsed]).map((p) => ({ name: p.Name, isDefault: Boolean(p.Default) }));
++  }
++
++  async function sendRaw(printerName, bytes) {
++    assertSupported();
++    if (!printerName) throw new Error('No printer selected (Settings \u2192 Store Profile \u2192 Receipt printing).');
++    const id = `xeoscape-print-${process.pid}-${Date.now()}`;
++    const scriptPath = path.join(tmpDir, `${id}.ps1`);
++    const dataPath = path.join(tmpDir, `${id}.bin`);
++    fs.writeFileSync(scriptPath, SEND_SCRIPT, 'utf8');
++    fs.writeFileSync(dataPath, bytes);
++    try {
++      await run(['-File', scriptPath, '-Printer', printerName, '-DataFile', dataPath]);
++    } finally {
++      fs.rmSync(scriptPath, { force: true });
++      fs.rmSync(dataPath, { force: true });
++    }
++  }
++
++  return { listPrinters, sendRaw };
++}
++
++module.exports = { createRawPrinter };
+diff --git a/core/store-profile.js b/core/store-profile.js
+index 86936c7..3c076e2 100644
+--- a/core/store-profile.js
++++ b/core/store-profile.js
+@@ -34,6 +34,20 @@ const DEFAULT_PROFILE = {
+   // the Due / Outstanding report and WhatsApp payment reminders.
+   creditSalesEnabled: false,
+   receiptFooter: 'Thank you for shopping with us!',
++  // Receipt printer: roll width in mm (58, 80 or 101.6 for a 4-inch
++  // roll) and a sideways nudge in mm (negative = left) for printers
++  // whose printable area isn't centred on the paper.
++  receiptPaperWidthMm: 80,
++  receiptShiftMm: 0,
++  // Blank paper fed after the last line (mm). Printers with no
++  // auto-cutter (tear-off) need ~15-20 so the tear clears the footer.
++  receiptTailMm: 8,
++  // How receipts are printed: 'dialog' = the normal Windows print
++  // window; 'direct' = ESC/POS sent straight to `receiptPrinterName`
++  // (no print window, no driver page sizing -- for label-style
++  // printers that feed a long blank strip through the driver).
++  receiptPrintMethod: 'dialog',
++  receiptPrinterName: '',
+   // URL of the shop's logo, shown on receipts and throughout the app
+   // (login screen, header). Defaults to the bundled Mini Mode logo
+   // (assets/images/store-logo.png, served at /images/store-logo.png
+diff --git a/core/whatsapp-sender.js b/core/whatsapp-sender.js
+index 862e0ff..34a7c77 100644
+--- a/core/whatsapp-sender.js
++++ b/core/whatsapp-sender.js
+@@ -13,6 +13,70 @@ function fillTemplate(template, vars) {
+   );
+ }
+ 
++/**
++ * Turns whatever was typed/stored ("98765 43210", "+91 98765-43210",
++ * "09876543210", "919876543210") into E.164 (+919876543210). A bare
++ * 10-digit number gets `defaultCountryCode` prepended. Returns null
++ * if it can't be a valid number.
++ */
++function normalizePhone(input, defaultCountryCode = '91') {
++  let digits = String(input ?? '').replace(/[^\d]/g, '');
++  if (!digits) return null;
++  const cc = String(defaultCountryCode || '').replace(/[^\d]/g, '');
++  if (String(input).trim().startsWith('00')) digits = digits.slice(2);
++  else if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1);
++  if (cc && digits.length === 10) digits = cc + digits;
++  if (digits.length < 11 || digits.length > 15) return null;
++  return `+${digits}`;
++}
++
++async function postToTwilio(settings, params) {
++  const url = `https://api.twilio.com/2010-04-01/Accounts/${settings.accountSid}/Messages.json`;
++  const auth = Buffer.from(`${settings.accountSid}:${settings.authToken}`).toString('base64');
++  let response;
++  try {
++    response = await fetch(url, {
++      method: 'POST',
++      headers: {
++        Authorization: `Basic ${auth}`,
++        'Content-Type': 'application/x-www-form-urlencoded'
++      },
++      body: params.toString()
++    });
++  } catch (err) {
++    throw new Error(`Could not reach Twilio: ${err.message}`);
++  }
++  const data = await response.json().catch(() => null);
++  if (!response.ok) {
++    throw new Error(data?.message || `Twilio error (HTTP ${response.status})`);
++  }
++  return { sid: data?.sid || null, status: data?.status || null };
++}
++
++/**
++ * Sends a bill/receipt straight from the app -- no WhatsApp window
++ * needs to be opened. Uses the bill template if one is configured,
++ * otherwise the full text in `body`.
++ */
++async function sendWhatsAppBill({ settings, toNumber, body, customerName, storeName, totalText }) {
++  if (!settings.accountSid || !settings.authToken || !settings.fromNumber) {
++    throw new Error('WhatsApp sending is not set up -- add the Twilio details in Settings \u2192 WhatsApp.');
++  }
++  const e164 = normalizePhone(toNumber, settings.defaultCountryCode);
++  if (!e164) throw new Error('That does not look like a valid WhatsApp number.');
++
++  const params = new URLSearchParams();
++  params.set('From', settings.fromNumber.startsWith('whatsapp:') ? settings.fromNumber : `whatsapp:${settings.fromNumber}`);
++  params.set('To', `whatsapp:${e164}`);
++  if (settings.billContentSid) {
++    params.set('ContentSid', settings.billContentSid);
++    params.set('ContentVariables', JSON.stringify({ 1: customerName || 'Customer', 2: storeName || '', 3: totalText || '' }));
++  } else {
++    params.set('Body', body);
++  }
++  return postToTwilio(settings, params);
++}
++
+ /**
+  * Sends a credit-reminder WhatsApp message to one customer.
+  * `toNumber` must be in E.164 format (e.g. +919876543210) -- the
+@@ -68,4 +132,4 @@ async function sendWhatsAppReminder({ settings, toNumber, customerName, amountTe
+   return { sid: data?.sid || null, status: data?.status || null };
+ }
+ 
+-module.exports = { sendWhatsAppReminder, fillTemplate };
++module.exports = { sendWhatsAppReminder, sendWhatsAppBill, normalizePhone, fillTemplate };
+diff --git a/core/whatsapp-settings.js b/core/whatsapp-settings.js
+index 8adce80..75f2d2b 100644
+--- a/core/whatsapp-settings.js
++++ b/core/whatsapp-settings.js
+@@ -23,6 +23,14 @@ const DEFAULT_WHATSAPP_SETTINGS = {
+   authToken: '',
+   fromNumber: '', // e.g. "whatsapp:+14155238886"
+   contentSid: '', // optional: pre-approved WhatsApp template SID (see note above)
++  // Bills/receipts sent from the POS screen. Numbers typed without a
++  // country code (e.g. a 10-digit Indian mobile) get this prefix.
++  defaultCountryCode: '91',
++  // optional: pre-approved template for bills. Variables sent:
++  // {{1}} customer name, {{2}} store name, {{3}} total. Without it the
++  // full itemised bill is sent as free text (works in the Twilio
++  // Sandbox, or within 24h of the customer messaging the shop first).
++  billContentSid: '',
+   reminderMessage: 'Hi {{name}}, this is a reminder that you have an outstanding balance of {{amount}} with us. Please settle at your earliest convenience. Thank you!'
+ };
+ 
+diff --git a/server.js b/server.js
+index b787478..0710242 100644
+--- a/server.js
++++ b/server.js
+@@ -41,6 +41,8 @@ const buildPurchaseOrdersRouter = require('./api/purchase-orders');
+ const buildExpensesRouter = require('./api/expenses');
+ const buildTallyRouter = require('./api/tally');
+ const buildWhatsAppRouter = require('./api/whatsapp');
++const buildPrintRouter = require('./api/print');
++const { createRawPrinter } = require('./core/raw-printer');
+ const SqliteStore = require('./core/sqlite-store');
+ const buildAiRouter = require('./api/ai');
+ const { buildAuthMiddleware } = require('./api/auth-middleware');
+@@ -90,6 +92,7 @@ async function createServer({ dataDir = appConfig.dataDir } = {}) {
+     customersDb: new SqliteStore(dataDir, 'customers'),
+     storeProfile: core.storeProfile
+   }));
++  app.use('/api/print', buildPrintRouter({ storeProfile: core.storeProfile, rawPrinter: createRawPrinter() }));
+   app.use('/api/ai', buildAiRouter(core));
+ 
+   const stopScheduler = startScheduler(core);
+diff --git a/tests/unit/bill-message.test.js b/tests/unit/bill-message.test.js
+new file mode 100644
+index 0000000..0419f2b
+--- /dev/null
++++ b/tests/unit/bill-message.test.js
+@@ -0,0 +1,41 @@
++import { buildBillMessage } from '../../assets/js/shared/bill-message.js';
++
++const profile = {
++  storeName: 'Mini Mode', tagline: 'Kids Wear by Seven Clans',
++  addressLine1: 'Uripok Khaiden Leikai', addressLine2: 'Imphal, Manipur - 795001',
++  receiptFooter: 'Thank you for shopping with us!'
++};
++
++test('mirrors the receipt: header, items, GST, total, payment, footer', () => {
++  const msg = buildBillMessage({
++    profile, symbol: '\u20B9', title: 'Receipt', date: '2026-09-23T17:42:00Z',
++    items: [{ name: 'blue T-Shirt', quantity: 1, lineTotal: 344 }],
++    subtotal: 344, discount: 0, taxAmount: 61.92, taxPercentage: 18, total: 405.92, paymentMethod: 'cash'
++  });
++  expect(msg).toContain('*Mini Mode*');
++  expect(msg).toContain('_Kids Wear by Seven Clans_');
++  expect(msg).toContain('Imphal, Manipur - 795001');
++  expect(msg).toContain('1. blue T-Shirt x1');
++  expect(msg).toContain('Subtotal: \u20B9 344');
++  expect(msg).toContain('GST (18%): \u20B9 61.92');
++  expect(msg).toContain('*Total: \u20B9 405.92*');
++  expect(msg).toContain('Paid via cash');
++  expect(msg).toContain('_Thank you for shopping with us!_');
++  expect(msg).not.toContain('Discount');
++});
++
++test('shows unit price for multiples, discount when set, and balance due', () => {
++  const msg = buildBillMessage({
++    profile, symbol: '\u20B9', items: [{ name: 'Frock', quantity: 2, lineTotal: 1000 }],
++    subtotal: 1000, discount: 100, total: 900, paymentMethod: 'credit', dueAmount: 400
++  });
++  expect(msg).toContain('Frock x2 (\u20B9 500 each)');
++  expect(msg).toContain('Discount: -\u20B9 100');
++  expect(msg).toContain('*Balance due: \u20B9 400*');
++});
++
++test('unpaid bill has no payment line and skips empty header fields', () => {
++  const msg = buildBillMessage({ profile: { storeName: 'X' }, symbol: '\u20B9', items: [], subtotal: 0, total: 0 });
++  expect(msg).not.toContain('Paid via');
++  expect(msg).not.toContain('Ph:');
++});
+diff --git a/tests/unit/escpos.test.js b/tests/unit/escpos.test.js
+new file mode 100644
+index 0000000..e8fc4cd
+--- /dev/null
++++ b/tests/unit/escpos.test.js
+@@ -0,0 +1,44 @@
++const { buildReceiptBytes, columnsFor, toAscii } = require('../../core/escpos');
++
++const receipt = {
++  storeName: 'Mini Mode', tagline: 'Kids Wear by Seven Clans', addressLines: ['Uripok Khaiden Leikai', 'Imphal, Manipur - 795001'],
++  title: 'Receipt', date: 'Sep 23, 2026', currencySymbol: '\u20B9',
++  items: [{ name: 'blue T-Shirt', quantity: 1, lineTotal: 344 }],
++  subtotal: 344, discount: 0, taxAmount: 61.92, taxPercentage: 18, total: 405.92, paymentMethod: 'cash', footer: 'Thank you for shopping with us!'
++};
++
++test('columns follow the roll width', () => {
++  expect(columnsFor(50.8)).toBe(31);
++  expect(columnsFor(80)).toBe(50);
++  expect(columnsFor(101.6)).toBe(65);
++});
++
++test('rupee sign becomes Rs. and output is pure ASCII/ESC-POS', () => {
++  expect(toAscii('\u20B9 344')).toBe('Rs. 344');
++  const buf = buildReceiptBytes(receipt, { paperWidthMm: 50.8, tailMm: 0 });
++  expect(buf.subarray(0, 2)).toEqual(Buffer.from([0x1b, 0x40])); // ESC @ init
++  const text = buf.toString('latin1');
++  expect(text).toContain('Rs. 405.92');
++  expect(text).toContain('GST (18%)');
++  expect(text).toContain('Paid via cash');
++  expect(text).not.toContain('\u20B9');
++});
++
++test('no line is wider than the column count', () => {
++  const buf = buildReceiptBytes({ ...receipt, items: [{ name: 'A very long garment name that must wrap onto more lines', quantity: 3, lineTotal: 1234.5 }] }, { paperWidthMm: 50.8, tailMm: 0 });
++  const cols = columnsFor(50.8);
++  // strip ESC/GS control sequences, then check each printed line
++  const printable = buf.toString('latin1').replace(/\x1b[@aEJ][\x00-\xff]?|\x1b[@]|\x1d[!L][\x00-\xff]{1,2}/g, '');
++  printable.split('\n').forEach((ln) => { if (ln.length) expect(ln.length).toBeLessThanOrEqual(cols + 2); });
++});
++
++test('ends with a blank feed of tailMm (ESC J), no cut command', () => {
++  const buf = buildReceiptBytes(receipt, { paperWidthMm: 80, tailMm: 20 }); // 160 dots
++  expect(buf.subarray(buf.length - 3)).toEqual(Buffer.from([0x1b, 0x4a, 160]));
++  expect(buf.includes(Buffer.from([0x1d, 0x56]))).toBe(false); // GS V = cut
++});
++
++test('long feeds are split into <=255 dot steps', () => {
++  const buf = buildReceiptBytes(receipt, { paperWidthMm: 80, tailMm: 40 }); // 320 dots = 255 + 65
++  expect(buf.subarray(buf.length - 6)).toEqual(Buffer.from([0x1b, 0x4a, 255, 0x1b, 0x4a, 65]));
++});
+diff --git a/tests/unit/payment-prefill.test.js b/tests/unit/payment-prefill.test.js
+new file mode 100644
+index 0000000..18281af
+--- /dev/null
++++ b/tests/unit/payment-prefill.test.js
+@@ -0,0 +1,73 @@
++/** @jest-environment jsdom */
++// tests/unit/payment-prefill.test.js -- the Payment modal opens with the
++// amount already filled in, so Confirm works with no re-typing.
++
++
++const mockPost = jest.fn().mockResolvedValue({ id: 't1', items: [], subtotal: 0, discount: 0, total: 0, createdAt: new Date().toISOString(), paymentMethod: 'cash' });
++jest.mock('../../assets/js/shared/api-client.js', () => ({ __esModule: true, default: { post: (...a) => mockPost(...a), get: jest.fn(), put: jest.fn() } }));
++jest.mock('../../assets/js/shared/settings-store.js', () => ({
++  __esModule: true,
++  default: {
++    getCurrencySymbol: () => '\u20B9',
++    getProfile: () => ({ chargeTax: true, taxPercentage: 18 }),
++    isCreditEnabled: () => false
++  }
++}));
++const mockRenderReceipt = jest.fn();
++jest.mock('../../assets/js/modules/checkout/receipt.js', () => ({ __esModule: true, renderReceipt: (...a) => mockRenderReceipt(...a) }));
++jest.mock('../../assets/js/ui/notification.js', () => ({ __esModule: true, default: { error: jest.fn(), success: jest.fn(), warning: jest.fn() } }));
++
++import { openPaymentDialog } from '../../assets/js/modules/checkout/payment.js';
++
++const cart = {
++  getSubtotal: () => 1000,
++  toCheckoutItems: () => [{ productId: 'p1', quantity: 1 }],
++  clear: jest.fn()
++};
++
++function open(extra = {}) {
++  document.body.innerHTML = '';
++  openPaymentDialog({ cartManager: cart, currentUserId: 'u1', discount: 0, ...extra });
++  return {
++    input: document.querySelector('.payment-amount-input'),
++    change: document.querySelector('.payment-change-bar'),
++    keys: [...document.querySelectorAll('.keypad-key')],
++    confirm: [...document.querySelectorAll('.modal-actions button')].find((b) => b.textContent === 'Confirm Payment')
++  };
++}
++const flush = () => new Promise((r) => setTimeout(r, 0));
++
++beforeEach(() => { mockPost.mockClear(); mockRenderReceipt.mockClear(); });
++
++test('opens with the full tax-inclusive amount already in the Payment box', () => {
++  const { input, change } = open();
++  expect(input.value).toBe('1180');
++  expect(change.textContent).toContain('0');
++  expect(change.classList.contains('insufficient')).toBe(false);
++});
++
++test('Confirm works straight away with no typing, and passes the phone to the receipt', async () => {
++  const { confirm } = open({ phone: '9876543210' });
++  confirm.click();
++  await flush();
++  expect(mockPost).toHaveBeenCalledTimes(1);
++  expect(mockPost.mock.calls[0][1].paidAmount).toBe(1180);
++  expect(mockRenderReceipt).toHaveBeenCalledWith(expect.anything(), { phone: '9876543210' });
++});
++
++test('first keypad press replaces the pre-filled amount (for giving change)', () => {
++  const { input, change, keys } = open();
++  const key = (k) => keys.find((b) => b.textContent === k);
++  key('2').click(); key('0').click(); key('0').click(); key('0').click();
++  expect(input.value).toBe('2000');
++  expect(change.textContent).toContain('820');
++});
++
++test('AC clears to empty and blocks confirm until an amount is entered', async () => {
++  const { input, keys, confirm } = open();
++  keys.find((b) => b.textContent === 'AC').click();
++  expect(input.value).toBe('');
++  confirm.click();
++  await flush();
++  expect(mockPost).not.toHaveBeenCalled();
++});
+diff --git a/tests/unit/print-utils.test.js b/tests/unit/print-utils.test.js
+new file mode 100644
+index 0000000..1b13b32
+--- /dev/null
++++ b/tests/unit/print-utils.test.js
+@@ -0,0 +1,61 @@
++/** @jest-environment jsdom */
++import { printHtml, buildReceiptPageCss } from '../../assets/js/shared/print-utils.js';
++
++describe('buildReceiptPageCss', () => {
++  test('declares an explicit width AND height (never "auto")', () => {
++    // 377px = ~99.75mm of content, +8mm tail feed
++    const css = buildReceiptPageCss({ widthMm: 80, contentHeightPx: 377 });
++    expect(css).toBe('@page { size: 80mm 108mm; margin: 0; }');
++    expect(css).not.toMatch(/auto/);
++  });
++  test('never returns a degenerate page for empty content', () => {
++    expect(buildReceiptPageCss({ widthMm: 58, contentHeightPx: 0 })).toContain('58mm 20mm');
++  });
++});
++
++describe('printHtml receipt mode', () => {
++  const html = '<html><head><style>.receipt{width:100%}</style></head><body><div class="receipt">hi</div></body></html>';
++
++  beforeEach(() => {
++    document.head.innerHTML = '';
++    document.body.innerHTML = '<div id="app-root"></div>';
++    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', { configurable: true, get() { return 377; } });
++    window.requestAnimationFrame = (cb) => cb();
++  });
++
++  test('sizes the page to the measured content and applies the sideways shift', async () => {
++    let printedCss = '';
++    window.print = jest.fn(() => {
++      printedCss = document.getElementById('app-print-style').textContent;
++      window.dispatchEvent(new Event('afterprint'));
++    });
++    await printHtml(html, { pageWidthMm: 80, offsetXmm: -3 });
++    expect(window.print).toHaveBeenCalledTimes(1);
++    expect(printedCss).toContain('@page { size: 80mm 108mm; margin: 0; }');
++    expect(printedCss).toContain('left: -3mm;');
++    // cleaned up afterwards
++    expect(document.getElementById('app-print-area')).toBeNull();
++    expect(document.getElementById('app-print-style')).toBeNull();
++  });
++
++  test('tailMm sets how much blank paper follows the receipt', async () => {
++    let printedCss = '';
++    window.print = jest.fn(() => {
++      printedCss = document.getElementById('app-print-style').textContent;
++      window.dispatchEvent(new Event('afterprint'));
++    });
++    // 377px = ~99.75mm content; +20mm tail = 119.75 -> 120mm
++    await printHtml(html, { pageWidthMm: 80, tailMm: 20 });
++    expect(printedCss).toContain('@page { size: 80mm 120mm; margin: 0; }');
++  });
++
++  test('without pageWidthMm (barcode labels) no @page is injected', async () => {
++    let printedCss = '';
++    window.print = jest.fn(() => {
++      printedCss = document.getElementById('app-print-style').textContent;
++      window.dispatchEvent(new Event('afterprint'));
++    });
++    await printHtml(html);
++    expect(printedCss).not.toContain('@page');
++  });
++});
+diff --git a/tests/unit/raw-printer.test.js b/tests/unit/raw-printer.test.js
+new file mode 100644
+index 0000000..533165b
+--- /dev/null
++++ b/tests/unit/raw-printer.test.js
+@@ -0,0 +1,47 @@
++const fs = require('fs');
++const os = require('os');
++const path = require('path');
++const { createRawPrinter } = require('../../core/raw-printer');
++
++test('refuses to run off Windows', async () => {
++  const p = createRawPrinter({ platform: 'linux', execFile: jest.fn() });
++  await expect(p.sendRaw('X', Buffer.from('a'))).rejects.toThrow(/Windows/);
++  await expect(p.listPrinters()).rejects.toThrow(/Windows/);
++});
++
++test('sendRaw passes the printer name as an argument (no shell) and cleans up temp files', async () => {
++  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rp-'));
++  const seen = {};
++  const execFile = jest.fn((cmd, args, opts, cb) => {
++    seen.cmd = cmd; seen.args = args;
++    seen.files = fs.readdirSync(tmp);
++    cb(null, '', '');
++  });
++  const p = createRawPrinter({ platform: 'win32', execFile, tmpDir: tmp });
++  await p.sendRaw('My "Printer"; calc', Buffer.from([1, 2, 3]));
++  expect(seen.cmd).toBe('powershell.exe');
++  expect(seen.args).toContain('My "Printer"; calc'); // one literal argv entry
++  expect(seen.args[seen.args.indexOf('-Printer') + 1]).toBe('My "Printer"; calc');
++  expect(seen.files.length).toBe(2); // script + data existed during the call
++  expect(fs.readdirSync(tmp)).toEqual([]); // and are removed afterwards
++});
++
++test('sendRaw surfaces PowerShell errors and still cleans up', async () => {
++  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rp-'));
++  const execFile = (c, a, o, cb) => cb(new Error('x'), '', "Could not send data to printer 'P'.");
++  const p = createRawPrinter({ platform: 'win32', execFile, tmpDir: tmp });
++  await expect(p.sendRaw('P', Buffer.from('a'))).rejects.toThrow(/Could not send data/);
++  expect(fs.readdirSync(tmp)).toEqual([]);
++});
++
++test('listPrinters handles one printer (object) or many (array)', async () => {
++  const one = createRawPrinter({ platform: 'win32', execFile: (c, a, o, cb) => cb(null, '{"Name":"A","Default":true}', '') });
++  expect(await one.listPrinters()).toEqual([{ name: 'A', isDefault: true }]);
++  const many = createRawPrinter({ platform: 'win32', execFile: (c, a, o, cb) => cb(null, '[{"Name":"A","Default":false},{"Name":"B","Default":true}]', '') });
++  expect((await many.listPrinters()).map((x) => x.name)).toEqual(['A', 'B']);
++});
++
++test('sendRaw requires a printer name', async () => {
++  const p = createRawPrinter({ platform: 'win32', execFile: jest.fn() });
++  await expect(p.sendRaw('', Buffer.from('a'))).rejects.toThrow(/No printer selected/);
++});
+diff --git a/tests/unit/whatsapp-sender.test.js b/tests/unit/whatsapp-sender.test.js
+new file mode 100644
+index 0000000..3216739
+--- /dev/null
++++ b/tests/unit/whatsapp-sender.test.js
+@@ -0,0 +1,64 @@
++// tests/unit/whatsapp-sender.test.js
++const { normalizePhone, sendWhatsAppBill } = require('../../core/whatsapp-sender');
++
++describe('normalizePhone', () => {
++  test('adds the default country code to a bare 10-digit number', () => {
++    expect(normalizePhone('98765 43210', '91')).toBe('+919876543210');
++  });
++  test('keeps numbers that already carry a country code', () => {
++    expect(normalizePhone('+91 98765-43210', '91')).toBe('+919876543210');
++    expect(normalizePhone('919876543210', '91')).toBe('+919876543210');
++    expect(normalizePhone('+1 (555) 123-4567', '91')).toBe('+15551234567');
++  });
++  test('strips a leading trunk 0', () => {
++    expect(normalizePhone('09876543210', '91')).toBe('+919876543210');
++  });
++  test('rejects things that are not phone numbers', () => {
++    expect(normalizePhone('', '91')).toBeNull();
++    expect(normalizePhone('abc', '91')).toBeNull();
++    expect(normalizePhone('12345', '91')).toBeNull();
++  });
++});
++
++describe('sendWhatsAppBill', () => {
++  const settings = { accountSid: 'ACxxx', authToken: 'tok', fromNumber: '+14155238886', defaultCountryCode: '91', billContentSid: '' };
++  let fetchMock;
++
++  beforeEach(() => {
++    fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ sid: 'SM1', status: 'queued' }) });
++    global.fetch = fetchMock;
++  });
++
++  test('posts free text to Twilio with whatsapp: prefixes', async () => {
++    const result = await sendWhatsAppBill({ settings, toNumber: '9876543210', body: 'Hello bill' });
++    expect(result).toEqual({ sid: 'SM1', status: 'queued' });
++    const [url, opts] = fetchMock.mock.calls[0];
++    expect(url).toContain('/Accounts/ACxxx/Messages.json');
++    const params = new URLSearchParams(opts.body);
++    expect(params.get('To')).toBe('whatsapp:+919876543210');
++    expect(params.get('From')).toBe('whatsapp:+14155238886');
++    expect(params.get('Body')).toBe('Hello bill');
++  });
++
++  test('uses the bill template when one is configured', async () => {
++    await sendWhatsAppBill({
++      settings: { ...settings, billContentSid: 'HX123' },
++      toNumber: '9876543210', body: 'ignored', customerName: 'Asha', storeName: 'Xeo', totalText: '\u20B9500'
++    });
++    const params = new URLSearchParams(fetchMock.mock.calls[0][1].body);
++    expect(params.get('ContentSid')).toBe('HX123');
++    expect(params.get('Body')).toBeNull();
++    expect(JSON.parse(params.get('ContentVariables'))).toEqual({ 1: 'Asha', 2: 'Xeo', 3: '\u20B9500' });
++  });
++
++  test('errors clearly when not configured or the number is bad', async () => {
++    await expect(sendWhatsAppBill({ settings: { ...settings, authToken: '' }, toNumber: '9876543210', body: 'x' })).rejects.toThrow(/not set up/);
++    await expect(sendWhatsAppBill({ settings, toNumber: '123', body: 'x' })).rejects.toThrow(/valid WhatsApp number/);
++    expect(fetchMock).not.toHaveBeenCalled();
++  });
++
++  test('surfaces Twilio errors', async () => {
++    fetchMock.mockResolvedValue({ ok: false, status: 400, json: async () => ({ message: 'Unverified number' }) });
++    await expect(sendWhatsAppBill({ settings, toNumber: '9876543210', body: 'x' })).rejects.toThrow('Unverified number');
++  });
++});
