@@ -7,7 +7,7 @@
 
 const express = require('express');
 const { requirePermission } = require('./auth-middleware');
-const { sendWhatsAppReminder } = require('../core/whatsapp-sender');
+const { sendWhatsAppReminder, sendWhatsAppBill } = require('../core/whatsapp-sender');
 
 function buildWhatsAppRouter({ whatsappSettings, customersDb, storeProfile }) {
   const router = express.Router();
@@ -24,6 +24,31 @@ function buildWhatsAppRouter({ whatsappSettings, customersDb, storeProfile }) {
   router.put('/settings', requirePermission('perm_settings'), async (req, res) => {
     const updated = await whatsappSettings.update(req.body);
     res.json(redact(updated));
+  });
+
+  // GET /api/whatsapp/status -- lets the POS screen know whether it can
+  // send bills directly from the app or must fall back to opening
+  // WhatsApp (wa.me link).
+  router.get('/status', requirePermission('perm_transactions'), async (req, res) => {
+    res.json({ autoSend: await whatsappSettings.isConfigured() });
+  });
+
+  // POST /api/whatsapp/send-bill  { phone, message, customerName?, storeName?, totalText? }
+  // Sends a bill/receipt directly -- not tied to credit sales.
+  router.post('/send-bill', requirePermission('perm_transactions'), async (req, res) => {
+    try {
+      const settings = await whatsappSettings.get();
+      if (!(await whatsappSettings.isConfigured())) {
+        return res.status(400).json({ error: 'WhatsApp sending is not set up (Settings \u2192 WhatsApp).', notConfigured: true });
+      }
+      const { phone, message, customerName, storeName, totalText } = req.body || {};
+      if (!phone) return res.status(400).json({ error: 'A WhatsApp number is required.' });
+      if (!message) return res.status(400).json({ error: 'Nothing to send.' });
+      const result = await sendWhatsAppBill({ settings, toNumber: phone, body: String(message), customerName, storeName, totalText });
+      res.json({ sent: true, ...result });
+    } catch (err) {
+      res.status(502).json({ error: err.message });
+    }
   });
 
   async function requireCreditSales(req, res, next) {
