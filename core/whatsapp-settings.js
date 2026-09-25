@@ -23,6 +23,14 @@ const DEFAULT_WHATSAPP_SETTINGS = {
   authToken: '',
   fromNumber: '', // e.g. "whatsapp:+14155238886"
   contentSid: '', // optional: pre-approved WhatsApp template SID (see note above)
+  // Bills/receipts sent from the POS screen. Numbers typed without a
+  // country code (e.g. a 10-digit Indian mobile) get this prefix.
+  defaultCountryCode: '91',
+  // optional: pre-approved template for bills. Variables sent:
+  // {{1}} customer name, {{2}} store name, {{3}} total. Without it the
+  // full itemised bill is sent as free text (works in the Twilio
+  // Sandbox, or within 24h of the customer messaging the shop first).
+  billContentSid: '',
   reminderMessage: 'Hi {{name}}, this is a reminder that you have an outstanding balance of {{amount}} with us. Please settle at your earliest convenience. Thank you!'
 };
 
