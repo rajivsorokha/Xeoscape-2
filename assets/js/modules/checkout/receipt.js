@@ -52,7 +52,7 @@ const RECEIPT_PRINT_CSS = `
      in a thin monospace font so the thermal head lays down a solid
      stroke instead of a faint, broken one. Chromium/WebView2 (what
      this prints through) both support the -webkit- prefixed property. */
-  body { font-family: 'Courier New', monospace; color: #000; font-weight: 600; -webkit-text-stroke: 0.35px #000; }
+  body { color: #000; }
   .receipt { width: 100%; padding: 3mm 4mm; }
   .receipt-shop-header { text-align: center; margin-bottom: 0.4rem; }
   .receipt-logo { max-width: 100%; max-height: 40px; margin: 0 auto 0.25rem; display: block; }
@@ -69,6 +69,48 @@ const RECEIPT_PRINT_CSS = `
   .receipt-test-banner { text-align: center; font-weight: 800; font-size: 0.78rem; border: 2px dashed #000; padding: 0.15rem; margin-bottom: 0.4rem; }
   @page { size: ${RECEIPT_PAPER_WIDTH_MM}mm auto; margin: 0; }
 `;
+
+// Receipt typeface. The old thin Courier + text-stroke look filled in
+// the gaps of letters on the thermal head and made numbers hard to
+// read (a 9 could look like an 8). These are heavy, open sans-serif
+// faces that every Windows PC already has, so nothing needs installing
+// and printing works offline. Chosen in Settings -> Store Profile ->
+// Receipt Font. Appended AFTER RECEIPT_PRINT_CSS so it overrides the
+// base sizes/weights.
+const RECEIPT_FONT_CSS = {
+  // Tahoma/Verdana were designed to stay legible at small sizes;
+  // Arial Black gives the store name and total real impact.
+  clear: `
+  body { font-family: Tahoma, Verdana, Arial, sans-serif; font-weight: 700; -webkit-text-stroke: 0; }
+  .receipt-store-name { font-family: 'Arial Black', Impact, Arial, sans-serif; font-weight: 900; font-size: 1.3rem; letter-spacing: 0.3px; }
+  .receipt-tagline { font-size: 0.82rem; font-weight: 700; }
+  .receipt-address { font-size: 0.78rem; font-weight: 700; }
+  .receipt-header { font-size: 0.85rem; font-weight: 700; }
+  .receipt-line, .receipt-totals div { font-size: 0.92rem; font-weight: 700; padding: 1px 0; }
+  .receipt-total-line { font-family: 'Arial Black', Impact, Arial, sans-serif; font-weight: 900; font-size: 1.15rem; }
+  .receipt-payment { font-size: 0.88rem; font-weight: 700; }
+  .receipt-footer { font-size: 0.8rem; font-weight: 700; }
+  .receipt-test-banner { font-size: 0.85rem; }`,
+  // Condensed Impact headlines over bold Arial body text.
+  impact: `
+  body { font-family: Arial, Helvetica, sans-serif; font-weight: 700; -webkit-text-stroke: 0; }
+  .receipt-store-name { font-family: Impact, 'Arial Narrow', Arial, sans-serif; font-weight: 400; font-size: 1.7rem; letter-spacing: 1px; text-transform: uppercase; }
+  .receipt-tagline { font-size: 0.82rem; font-weight: 700; }
+  .receipt-address { font-size: 0.78rem; font-weight: 700; }
+  .receipt-header { font-size: 0.85rem; font-weight: 700; }
+  .receipt-line, .receipt-totals div { font-size: 0.95rem; font-weight: 700; padding: 1px 0; }
+  .receipt-total-line { font-family: Impact, 'Arial Narrow', Arial, sans-serif; font-weight: 400; font-size: 1.45rem; letter-spacing: 0.5px; }
+  .receipt-payment { font-size: 0.9rem; font-weight: 700; }
+  .receipt-footer { font-size: 0.8rem; font-weight: 700; }
+  .receipt-test-banner { font-size: 0.85rem; }`,
+  // The previous look, for anyone who prefers it.
+  classic: `
+  body { font-family: 'Courier New', monospace; font-weight: 600; -webkit-text-stroke: 0.35px #000; }`
+};
+
+function receiptFontCss(choice) {
+  return RECEIPT_FONT_CSS[choice] || RECEIPT_FONT_CSS.clear;
+}
 
 // So a printed test sale is never mistaken for a real one on paper --
 // especially once it can no longer be told apart from the transaction
@@ -108,7 +150,7 @@ function buildReceiptPrintHtml(transaction) {
 
   return `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>Receipt</title><style>${RECEIPT_PRINT_CSS}</style></head>
+<head><meta charset="utf-8"><title>Receipt</title><style>${RECEIPT_PRINT_CSS}${receiptFontCss(profile.receiptFont)}</style></head>
 <body>
   <div class="receipt">
     ${transaction.isTest ? TEST_SALE_BANNER_HTML : ''}

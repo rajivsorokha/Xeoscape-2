@@ -8,6 +8,7 @@ import apiClient from '../../shared/api-client.js';
 import { el } from '../../shared/utils.js';
 import { formatMoney } from '../../shared/formatters.js';
 import notification from '../../ui/notification.js';
+import { mountDetailReportTabs } from './detail-reports.js';
 
 const RANGES = [
   { id: 'today', label: 'Today' },
@@ -17,7 +18,7 @@ const RANGES = [
 ];
 
 export async function mountReportGenerator(container) {
-  container.appendChild(el('h3', {}, 'Report Generator'));
+  container.appendChild(el('h3', {}, 'Mini Mode Reports'));
   container.appendChild(el('p', { class: 'settings-hint' }, 'Generate a sales report for a period, and optionally email it immediately.'));
 
   let selectedRange = 'today';
@@ -95,4 +96,7 @@ export async function mountReportGenerator(container) {
   }
 
   await loadSummary();
+
+  // Transaction / Product / Customer detail reports with Excel (CSV) download.
+  await mountDetailReportTabs(container);
 }

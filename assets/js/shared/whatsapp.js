@@ -26,7 +26,15 @@ export function buildWhatsAppUrl(phone, message) {
  * the given message pre-filled. Only used as a fallback now.
  */
 export function openWhatsApp(phone, message) {
-  window.open(buildWhatsAppUrl(phone, message), '_blank');
+  const url = buildWhatsAppUrl(phone, message);
+  // Inside the Tauri desktop shell window.open() does nothing, so use
+  // the opener plugin (opens the default browser / WhatsApp desktop).
+  const opener = window.__TAURI__?.opener;
+  if (opener?.openUrl) {
+    opener.openUrl(url).catch(() => window.open(url, '_blank'));
+    return;
+  }
+  window.open(url, '_blank');
 }
 
 /** True if the text has enough digits to plausibly be a phone number. */

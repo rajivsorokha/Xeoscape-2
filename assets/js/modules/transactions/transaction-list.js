@@ -266,14 +266,14 @@ export async function mountTransactionList(container) {
                 // the delete button above, or the bulk "Clear test
                 // sales" action -- without this, a real sale has no
                 // delete path at all, only Void (see View).
-                const markTestBtn = el('button', { class: 'btn btn-sm btn-secondary', title: 'Mark as a test sale, so it can be deleted' }, '\u{1F9EA}');
+                const markTestBtn = el('button', { class: 'btn btn-sm btn-secondary', title: 'Delete this old sale' }, '\u{1F5D1}');
                 markTestBtn.addEventListener('click', async (e) => {
                   e.stopPropagation();
-                  if (!confirm('Mark this as a test sale? It will be excluded from reports, but it is NOT deleted. It stays in this list with a TEST badge until you click its \u2715 button.')) return;
+                  if (!confirm('Delete this old sale permanently? Its items are put back in stock and it is removed from reports. This cannot be undone.')) return;
                   try {
                     await apiClient.post(`/transactions/${t.id}/mark-test`, {});
-                    notification.success('Marked as a test sale. It is not deleted \u2014 click \u2715 on the row to delete it.');
-                    revealTestSales();
+                    await apiClient.delete(`/transactions/${t.id}`);
+                    notification.success('Sale deleted.');
                     refresh();
                   } catch (err) {
                     notification.error(`Failed to mark: ${err.message}`);

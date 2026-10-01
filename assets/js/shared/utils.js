@@ -18,6 +18,13 @@ export function el(tag, attrs = {}, children = []) {
       node.addEventListener(key.slice(2).toLowerCase(), value);
     } else if (key === 'checked') {
       node.checked = Boolean(value);
+    } else if (value === false || value === null) {
+      // BUGFIX: setAttribute('disabled', false) writes disabled="false",
+      // which browsers still treat as disabled -- that made the return
+      // quantity box (and any other `disabled: <false>`) unusable.
+      continue;
+    } else if (value === true) {
+      node.setAttribute(key, '');
     } else {
       node.setAttribute(key, value);
     }

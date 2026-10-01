@@ -168,6 +168,21 @@ export async function mountStoreProfile(container) {
     checkboxField('chargeTax', 'Charge GST'),
     checkboxField('quickBilling', 'Quick Billing (skip payment confirmation)'),
     (() => {
+      const FONTS = [
+        { value: 'clear', label: 'Clear Bold \u2014 Tahoma + Arial Black (recommended)' },
+        { value: 'impact', label: 'Impact \u2014 big Impact headings + bold Arial' },
+        { value: 'classic', label: 'Classic \u2014 Courier (old look)' }
+      ];
+      const select = el('select', {
+        onChange: (e) => { values.receiptFont = e.target.value; }
+      }, FONTS.map((f) => el('option', { value: f.value, selected: (values.receiptFont || 'clear') === f.value }, f.label)));
+      return el('div', { class: 'form-field' }, [
+        el('label', {}, 'Receipt Font'),
+        select,
+        el('p', { class: 'settings-hint' }, 'Typeface used on printed bills. Save, then print a bill to see the difference.')
+      ]);
+    })(),
+    (() => {
       const textarea = el('textarea', {
         rows: '3',
         onInput: (e) => { values.receiptFooter = e.target.value; }

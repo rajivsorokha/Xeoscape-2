@@ -15,7 +15,8 @@ import { mountExpenses } from './expenses.js';
 import { mountTallyIntegration } from './tally-integration.js';
 import { mountQuickScanAdd } from '../products/quick-scan-add.js';
 import { mountWhatsAppReminders } from './whatsapp-reminders.js';
-import { mountDueOutstandingReport } from './due-outstanding-report.js';
+import { mountCustomersManager } from './customers-manager.js';
+import { mountDashboard } from './dashboard.js';
 import { mountPurchaseOrders } from './purchase-orders.js';
 import { mountStockOnHand } from './stock-on-hand.js';
 import { mountEmailSettings } from './email-settings-panel.js';
@@ -28,14 +29,15 @@ import { createBackToPosButton } from '../../ui/back-to-pos-button.js';
 import notification from '../../ui/notification.js';
 
 const SECTIONS = [
+  { id: 'dashboard', label: '\u{1F4CA} Dashboard', mount: mountDashboard },
   { id: 'store-profile', label: 'Store Profile', mount: mountStoreProfile },
   { id: 'store-type', label: 'Store Type', mount: (container, ctx) => mountStoreTypeConfig(container, { onChanged: ctx.onStoreTypeChanged }) },
   { id: 'bulk-import', label: 'Bulk Product Import', mount: mountBulkImport },
   { id: 'quick-scan-add', label: 'Quick Scan Add', mount: mountQuickScanAdd },
   { id: 'barcode-labels', label: 'Barcode Labels', mount: mountBarcodeLabels },
   { id: 'whatsapp-reminders', label: 'WhatsApp', mount: mountWhatsAppReminders },
-  { id: 'due-outstanding-report', label: 'Due / Outstanding Report', mount: mountDueOutstandingReport },
-  { id: 'report-generator', label: 'Report Generator', mount: mountReportGenerator },
+  { id: 'customers', label: 'Customers', mount: mountCustomersManager },
+  { id: 'report-generator', label: 'Mini Mode Reports', mount: mountReportGenerator },
   { id: 'product-performance', label: 'Product Performance (ABC)', mount: mountProductPerformance },
   { id: 'low-stock', label: 'Low Stock', mount: mountLowStockReport },
   { id: 'suppliers', label: 'Suppliers', mount: mountSupplierList },
