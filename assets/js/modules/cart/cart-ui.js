@@ -15,13 +15,27 @@ import notification from '../../ui/notification.js';
 import { setScanHandler } from '../../shared/barcode-scanner.js';
 
 export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
+  // `discount` is always the resolved, absolute-currency amount --
+  // that's what the backend (checkout/hold) actually charges against.
+  // `discountValue`/`discountMode` are the *inputs* the cashier is
+  // controlling: either a currency amount directly, or a percentage
+  // that gets resolved against the current subtotal every time the
+  // cart changes (so a 10% discount stays 10% as items are added or
+  // removed, rather than freezing at whatever the subtotal happened to
+  // be when it was typed).
   let discount = 0;
+  let discountMode = 'amount'; // 'amount' | 'percent'
+  let discountValue = 0;
   let selectedCustomerId = '';
   // WhatsApp number typed for the current sale (walk-in customers have
   // no saved number) -- reused by the Pay -> receipt screen so the
   // cashier is never asked twice. Reset when the sale ends or the
   // customer changes.
   let salePhone = '';
+  // A demo/training sale, flagged so it never counts toward real
+  // revenue figures and can later be found and actually deleted
+  // (rather than just voided) -- see core/transaction-manager.js.
+  let isTest = false;
   // --- Customer select row ---
   const customerSelect = el('select', {}, [el('option', { value: '' }, 'Walk in customer')]);
   const addCustomerBtn = el('button', { class: 'btn btn-primary btn-icon', onClick: () => openCustomerForm({ onSaved: refreshCustomers }) }, '+');
@@ -96,14 +110,64 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
     min: '0',
     placeholder: 'amount',
     onInput: (e) => {
-      discount = Number(e.target.value) || 0;
+      discountValue = Number(e.target.value) || 0;
+      resolveDiscount();
       render(lastState);
     }
   });
+  const discountModeSelect = el('select', {
+    class: 'discount-mode-select',
+    title: 'Discount type',
+    onChange: (e) => {
+      discountMode = e.target.value;
+      discountInput.placeholder = discountMode === 'percent' ? '%' : 'amount';
+      resolveDiscount();
+      render(lastState);
+    }
+  }, [
+    el('option', { value: 'amount' }, settingsStore.getCurrencySymbol()),
+    el('option', { value: 'percent' }, '%')
+  ]);
+
+  /** Recomputes `discount` (the actual currency amount charged) from whatever the cashier typed. */
+  function resolveDiscount() {
+    const subtotal = cartManager.getSubtotal();
+    if (discountMode === 'percent') {
+      const pct = Math.min(Math.max(discountValue, 0), 100);
+      discount = Number(((subtotal * pct) / 100).toFixed(2));
+    } else {
+      discount = Math.min(Math.max(discountValue, 0), subtotal);
+    }
+  }
+
+  // --- Test sale toggle ---
+  // Lets a cashier ring up a demo/training sale without it polluting
+  // real sales reports -- see core/transaction-manager.js#checkout's
+  // isTest flag and list()'s includeTest for how it's kept separate.
+  const testSaleCheckbox = el('input', {
+    type: 'checkbox',
+    id: 'cart-test-sale',
+    onChange: (e) => { isTest = e.target.checked; }
+  });
+  const testSaleRow = el('label', { class: 'cart-test-sale-row', for: 'cart-test-sale' }, [
+    testSaleCheckbox,
+    ' This is a test sale (won\u2019t count toward sales reports, and can be deleted later)'
+  ]);
 
   // --- Action row: Print / Cancel / Hold / Pay ---
   const printBtn = el('button', { class: 'btn btn-info btn-icon', title: 'Print preview', onClick: () => onPrintPreview?.({ lines: cartManager.getLines(), discount, total: computeGross() }) }, '\u{1F5A8}');
-  const cancelBtn = el('button', { class: 'btn btn-danger', onClick: () => { cartManager.clear(); discountInput.value = ''; discount = 0; salePhone = ''; } }, [el('span', {}, '\u2298 Cancel')]);
+  function resetDiscount() {
+    discountInput.value = '';
+    discountValue = 0;
+    discount = 0;
+  }
+  const cancelBtn = el('button', { class: 'btn btn-danger', onClick: () => {
+    cartManager.clear();
+    resetDiscount();
+    salePhone = '';
+    testSaleCheckbox.checked = false;
+    isTest = false;
+  } }, [el('span', {}, '\u2298 Cancel')]);
   const holdBtn = el('button', { class: 'btn btn-info', onClick: async () => {
     if (cartManager.getLines().length === 0) { notification.error('Cart is empty.'); return; }
     const ref = await promptModal('Reference for this held order:', '');
@@ -113,18 +177,20 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
         items: cartManager.toCheckoutItems(),
         discount,
         customerId: selectedCustomerId || null,
-        ref
+        ref,
+        isTest
       });
       cartManager.clear();
-      discountInput.value = '';
-      discount = 0;
+      resetDiscount();
       salePhone = '';
+      testSaleCheckbox.checked = false;
+      isTest = false;
       notification.success('Order held. Find it under Open Tabs.');
     } catch (err) {
       notification.error(err.message);
     }
   } }, [el('span', {}, '\u270B Hold')]);
-  const payBtn = el('button', { class: 'btn btn-success', onClick: () => onPay?.({ discount, customerId: selectedCustomerId, phone: salePhone }) }, [el('span', {}, '\u{1F4B0} Pay')]);
+  const payBtn = el('button', { class: 'btn btn-success', onClick: () => onPay?.({ discount, customerId: selectedCustomerId, phone: salePhone, isTest }) }, [el('span', {}, '\u{1F4B0} Pay')]);
 
   const whatsappBtn = el('button', { class: 'btn btn-whatsapp', title: 'Send bill to WhatsApp', onClick: async (e) => {
     const btn = e.currentTarget; // must be read before any await
@@ -177,9 +243,10 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
     el('div', { class: 'cart-totals' }, [
       el('div', { class: 'cart-totals-row' }, [el('span', {}, 'Total Item(s)'), el('span', {}, [': ', totalItemsEl])]),
       el('div', { class: 'cart-totals-row' }, [el('span', {}, 'Price :'), el('span', {}, [': ', priceEl])]),
-      el('div', { class: 'cart-totals-row' }, [el('span', {}, 'Discount'), discountInput]),
+      el('div', { class: 'cart-totals-row' }, [el('span', {}, 'Discount'), el('div', { class: 'discount-input-group' }, [discountInput, discountModeSelect])]),
       el('div', { class: 'cart-totals-row' }, [el('span', {}, ['Gross Price (inc ', taxInfoEl, '% GST)']), grossPriceEl])
     ]),
+    testSaleRow,
     el('div', { class: 'cart-actions' }, [
       el('div', { class: 'cart-action-row-utility' }, [printBtn, cancelBtn]),
       el('div', { class: 'cart-action-row-primary' }, [holdBtn, whatsappBtn, payBtn])
@@ -199,6 +266,11 @@ export function mountCart(container, { cartManager, onPay, onPrintPreview }) {
   function render(state = { lines: [], subtotal: 0 }) {
     lastState = state;
     const { lines = [], subtotal = 0 } = state;
+    // A percentage discount is relative to the subtotal, which just
+    // changed (a line was added/removed/re-quantitied) -- re-resolve it
+    // so, say, "10%" stays 10% of the new total rather than the amount
+    // it happened to work out to before the cart changed.
+    resolveDiscount();
     listEl.innerHTML = '';
     if (lines.length === 0) {
       listEl.appendChild(el('div', { class: 'cart-empty' }, 'No items yet -- scan a barcode or add from the catalog.'));

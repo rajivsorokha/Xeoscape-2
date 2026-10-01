@@ -34,25 +34,47 @@ function escapeHtml(text) {
 // continuous-feed, not cut to a fixed page length -- the printer just
 // feeds and cuts after however much the receipt actually needs.
 const RECEIPT_PAPER_WIDTH_MM = 80;
+// Every colour below is pure black (or a solid, not-too-thin dashed
+// rule) on purpose. The soft slate/grey palette used on screen
+// (#36404a body text, #75798b for the tagline/address/footer, a pale
+// #dbdde3 divider) looks fine on a monitor but is exactly what makes a
+// thermal print come out faint: most thermal printers -- and Chromium's
+// own "print grayscale" conversion feeding them -- render anything
+// lighter than true black as a sparse, weak dot pattern rather than a
+// solid burn. Text weight is bumped up for the same reason: a thermal
+// head lays down more/darker toner along a heavier stroke, which is
+// what actually reads as "bold" on paper rather than just on screen.
 const RECEIPT_PRINT_CSS = `
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; width: ${RECEIPT_PAPER_WIDTH_MM}mm; }
-  body { font-family: 'Courier New', monospace; color: #36404a; }
+  /* -webkit-text-stroke adds a hairline outline around every glyph --
+     on top of font-weight, this is what actually closes up the gaps
+     in a thin monospace font so the thermal head lays down a solid
+     stroke instead of a faint, broken one. Chromium/WebView2 (what
+     this prints through) both support the -webkit- prefixed property. */
+  body { font-family: 'Courier New', monospace; color: #000; font-weight: 600; -webkit-text-stroke: 0.35px #000; }
   .receipt { width: 100%; padding: 3mm 4mm; }
   .receipt-shop-header { text-align: center; margin-bottom: 0.4rem; }
   .receipt-logo { max-width: 100%; max-height: 40px; margin: 0 auto 0.25rem; display: block; }
-  .receipt-store-name { font-weight: 700; font-size: 0.95rem; }
-  .receipt-tagline { font-size: 0.68rem; color: #75798b; margin-bottom: 0.15rem; }
-  .receipt-address { font-size: 0.62rem; color: #75798b; line-height: 1.3; }
+  .receipt-store-name { font-weight: 800; font-size: 0.95rem; }
+  .receipt-tagline { font-size: 0.68rem; color: #000; font-weight: 600; margin-bottom: 0.15rem; }
+  .receipt-address { font-size: 0.62rem; color: #000; font-weight: 600; line-height: 1.3; }
   .receipt-header { text-align: center; margin-bottom: 0.4rem; font-size: 0.72rem; }
-  .receipt-header div:first-child { font-weight: 700; }
-  .receipt-line, .receipt-totals div { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.72rem; }
+  .receipt-header div:first-child { font-weight: 800; }
+  .receipt-line, .receipt-totals div { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.74rem; font-weight: 600; }
   .receipt-line span:first-child { word-break: break-word; }
-  .receipt-total-line { font-weight: 700; font-size: 0.85rem; border-top: 1px dashed #5fbeaa; margin-top: 0.3rem; padding-top: 0.3rem; }
-  .receipt-payment { margin-top: 0.3rem; font-size: 0.72rem; }
-  .receipt-footer { margin-top: 0.5rem; padding-top: 0.4rem; border-top: 1px dashed #dbdde3; text-align: center; font-size: 0.65rem; color: #75798b; }
+  .receipt-total-line { font-weight: 800; font-size: 0.88rem; border-top: 2px dashed #000; margin-top: 0.3rem; padding-top: 0.3rem; }
+  .receipt-payment { margin-top: 0.3rem; font-size: 0.72rem; font-weight: 600; }
+  .receipt-footer { margin-top: 0.5rem; padding-top: 0.4rem; border-top: 1px dashed #000; text-align: center; font-size: 0.65rem; font-weight: 600; color: #000; }
+  .receipt-test-banner { text-align: center; font-weight: 800; font-size: 0.78rem; border: 2px dashed #000; padding: 0.15rem; margin-bottom: 0.4rem; }
   @page { size: ${RECEIPT_PAPER_WIDTH_MM}mm auto; margin: 0; }
 `;
+
+// So a printed test sale is never mistaken for a real one on paper --
+// especially once it can no longer be told apart from the transaction
+// list it came from (that list is where the isTest flag actually
+// lives; the printed slip is standalone).
+const TEST_SALE_BANNER_HTML = '<div class="receipt-test-banner">\u{1F9EA} TEST SALE \u2014 NOT A REAL TRANSACTION</div>';
 
 function receiptHeaderHtml(profile) {
   return `
@@ -89,6 +111,7 @@ function buildReceiptPrintHtml(transaction) {
 <head><meta charset="utf-8"><title>Receipt</title><style>${RECEIPT_PRINT_CSS}</style></head>
 <body>
   <div class="receipt">
+    ${transaction.isTest ? TEST_SALE_BANNER_HTML : ''}
     ${receiptHeaderHtml(profile)}
     <div class="receipt-header"><div>${escapeHtml(formatDate(transaction.createdAt))}</div></div>
     <div class="receipt-lines">${lines}</div>
@@ -166,6 +189,7 @@ export function renderReceipt(transaction, { phone: knownPhone = '' } = {}) {
   );
 
   const receipt = el('div', { class: 'receipt', id: 'printable-receipt' }, [
+    transaction.isTest ? el('div', { class: 'receipt-test-banner' }, '\u{1F9EA} TEST SALE \u2014 NOT A REAL TRANSACTION') : null,
     renderReceiptHeader(profile),
     el('div', { class: 'receipt-header' }, [
       el('div', { class: 'receipt-date' }, formatDate(transaction.createdAt))

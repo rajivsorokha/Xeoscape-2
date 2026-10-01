@@ -90,19 +90,61 @@ export async function mountBarcodeLabels(container) {
   // Quick entry: garment type / colour / size typed by the operator
   // ---------------------------------------------------------------
 
-  const typeSelect = el('select', {}, GARMENT_TYPES.map((t) => el('option', { value: t }, t)));
+  // Both dropdowns carry a trailing "type your own" option -- the
+  // fixed lists cover what's common, but a delivery is sometimes a
+  // garment or a size the shop has never stocked before (a "Dupatta",
+  // a "Waist 34x30"), and quick entry shouldn't block on that. The
+  // backend already accepts any non-empty string for both (see
+  // core/garment-intake.js), so this is purely a UI affordance -- pick
+  // "Other / type manually..." and a text box appears in its place.
+  const CUSTOM_OPTION_VALUE = '__custom__';
+
+  const typeSelect = el('select', {}, [
+    ...GARMENT_TYPES.map((t) => el('option', { value: t }, t)),
+    el('option', { value: CUSTOM_OPTION_VALUE }, 'Other / type manually...')
+  ]);
+  const typeCustomInput = el('input', {
+    type: 'text',
+    placeholder: 'Type the garment type',
+    style: 'display:none'
+  });
   const colorInput = el('input', { type: 'text', placeholder: 'e.g. Navy Blue' });
   const sizeSelect = el('select', {}, [
     el('option', { value: '' }, 'Size...'),
-    ...SIZES.map((s) => el('option', { value: s }, s))
+    ...SIZES.map((s) => el('option', { value: s }, s)),
+    el('option', { value: CUSTOM_OPTION_VALUE }, 'Other / type manually...')
   ]);
+  const sizeCustomInput = el('input', {
+    type: 'text',
+    placeholder: 'Type the size',
+    style: 'display:none'
+  });
+  typeSelect.addEventListener('change', () => {
+    typeCustomInput.style.display = typeSelect.value === CUSTOM_OPTION_VALUE ? 'block' : 'none';
+    if (typeSelect.value === CUSTOM_OPTION_VALUE) typeCustomInput.focus();
+  });
+  sizeSelect.addEventListener('change', () => {
+    sizeCustomInput.style.display = sizeSelect.value === CUSTOM_OPTION_VALUE ? 'block' : 'none';
+    if (sizeSelect.value === CUSTOM_OPTION_VALUE) sizeCustomInput.focus();
+  });
+  /** Resolves the dropdown + its "type manually" fallback down to one string. */
+  function resolvedGarmentType() {
+    return (typeSelect.value === CUSTOM_OPTION_VALUE ? typeCustomInput.value : typeSelect.value).trim();
+  }
+  function resolvedSize() {
+    return (sizeSelect.value === CUSTOM_OPTION_VALUE ? sizeCustomInput.value : sizeSelect.value).trim();
+  }
+
   const priceInput = el('input', { type: 'number', step: '0.01', min: '0', placeholder: 'Price' });
   // This is both the stock quantity booked in and the number of tags
   // printed -- twelve tees arriving means twelve in stock and twelve
   // labels, which is what makes the two stay in step.
   const qtyInput = el('input', { type: 'number', min: '1', step: '1', value: '1', placeholder: 'Qty' });
 
-  const QUICK_QUANTITIES = [2, 4, 6, 8, 12];
+  // Small runs use the low presets; a fresh delivery is often tagged
+  // 50-60 pieces at once, so those are one tap too rather than typing
+  // the number by hand every time.
+  const QUICK_QUANTITIES = [2, 4, 6, 8, 12, 24, 50, 60, 100];
   const quickQtyButtons = el('div', { class: 'label-qty-presets' }, QUICK_QUANTITIES.map((n) => (
     el('button', {
       type: 'button',
@@ -114,13 +156,21 @@ export async function mountBarcodeLabels(container) {
   const addQuickBtn = el('button', { class: 'btn btn-primary' }, 'Add to stock & queue labels');
 
   addQuickBtn.addEventListener('click', async () => {
-    const garmentType = typeSelect.value;
+    const garmentType = resolvedGarmentType();
     const color = colorInput.value.trim();
-    const size = sizeSelect.value;
+    const size = resolvedSize();
     const quantity = Math.max(1, Math.floor(Number(qtyInput.value) || 1));
 
+    if (typeSelect.value === CUSTOM_OPTION_VALUE && !garmentType) {
+      notification.error('Type the garment type, or pick one from the list.');
+      return;
+    }
     if (!size) {
-      notification.error('Pick a size -- a clothing tag without one is no use on the floor.');
+      notification.error(
+        sizeSelect.value === CUSTOM_OPTION_VALUE
+          ? 'Type the size -- a clothing tag without one is no use on the floor.'
+          : 'Pick a size -- a clothing tag without one is no use on the floor.'
+      );
       return;
     }
 
@@ -164,6 +214,8 @@ export async function mountBarcodeLabels(container) {
       colorInput.value = '';
       priceInput.value = '';
       qtyInput.value = '1';
+      typeCustomInput.value = '';
+      sizeCustomInput.value = '';
       renderQueue();
       notification.success(
         result.created
@@ -178,9 +230,9 @@ export async function mountBarcodeLabels(container) {
   });
 
   const quickEntry = el('div', { class: 'label-quick-entry' }, [
-    el('div', { class: 'form-field' }, [el('label', {}, 'Garment Type'), typeSelect]),
+    el('div', { class: 'form-field' }, [el('label', {}, 'Garment Type'), typeSelect, typeCustomInput]),
     el('div', { class: 'form-field' }, [el('label', {}, 'Colour'), colorInput]),
-    el('div', { class: 'form-field' }, [el('label', {}, 'Size'), sizeSelect]),
+    el('div', { class: 'form-field' }, [el('label', {}, 'Size'), sizeSelect, sizeCustomInput]),
     el('div', { class: 'form-field' }, [el('label', {}, `Price (${currencySymbol})`), priceInput]),
     el('div', { class: 'form-field' }, [
       el('label', { title: 'Goes into stock, and prints this many tags' }, 'Qty arrived'),
@@ -306,12 +358,53 @@ export async function mountBarcodeLabels(container) {
         }
       });
 
+      // Garment / Colour / Size / Price are editable right here, not
+      // just at quick-entry time -- a barcode pulled in from the
+      // catalogue (or a typo caught after the fact) shouldn't mean
+      // clearing the row and starting over. This only edits what gets
+      // printed on THIS batch of labels; it deliberately does not write
+      // back to the product record itself (see expandByQuantity() /
+      // printBtn below, which print straight from these row objects).
+      const rowGarmentType = el('input', {
+        type: 'text',
+        value: row.garmentType || row.name || '',
+        placeholder: 'Garment',
+        class: 'label-queue-edit-input',
+        onInput: (event) => { row.garmentType = event.target.value; updatePreview(); }
+      });
+      const rowColor = el('input', {
+        type: 'text',
+        value: row.color || '',
+        placeholder: 'Colour',
+        class: 'label-queue-edit-input',
+        onInput: (event) => { row.color = event.target.value; updatePreview(); }
+      });
+      const rowSize = el('input', {
+        type: 'text',
+        value: row.size || '',
+        placeholder: 'Size',
+        class: 'label-queue-edit-input label-queue-edit-input-narrow',
+        onInput: (event) => { row.size = event.target.value; updatePreview(); }
+      });
+      const rowPrice = el('input', {
+        type: 'number',
+        min: '0',
+        step: '0.01',
+        value: row.price === null || row.price === undefined ? '' : String(row.price),
+        placeholder: 'Price',
+        class: 'label-queue-edit-input label-queue-edit-input-narrow',
+        onInput: (event) => {
+          row.price = event.target.value === '' ? null : Number(event.target.value);
+          updatePreview();
+        }
+      });
+
       return el('tr', {}, [
         el('td', { class: 'label-code-cell' }, row.code),
-        el('td', {}, row.garmentType || row.name || '\u2014'),
-        el('td', {}, row.color || '\u2014'),
-        el('td', {}, row.size || '\u2014'),
-        el('td', {}, row.price === null || row.price === undefined ? '\u2014' : `${currencySymbol}${Number(row.price).toFixed(2)}`),
+        el('td', {}, rowGarmentType),
+        el('td', {}, rowColor),
+        el('td', {}, rowSize),
+        el('td', {}, [el('span', { class: 'label-queue-price-symbol' }, currencySymbol), rowPrice]),
         el('td', {}, rowQty),
         el('td', { class: 'action' }, [
           el('button', {

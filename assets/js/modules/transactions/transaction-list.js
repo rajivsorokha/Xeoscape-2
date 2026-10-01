@@ -21,7 +21,12 @@ export async function mountTransactionList(container) {
     cashier: '',
     status: 'completed',
     from: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0).toISOString(),
-    to: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999).toISOString()
+    to: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999).toISOString(),
+    // Off by default -- test sales are already excluded from every
+    // stat card and report query below (list()'s own includeTest
+    // default handles that), this just controls whether they show up
+    // in the Transaction Details table so they can be found/deleted.
+    includeTest: false
   };
 
   // --- Stats cards ---
@@ -71,12 +76,33 @@ export async function mountTransactionList(container) {
     }
   });
 
+  const includeTestCheckbox = el('input', {
+    type: 'checkbox',
+    onChange: (e) => { filters.includeTest = e.target.checked; clearTestBtn.style.display = e.target.checked ? '' : 'none'; refresh(); }
+  });
+  const clearTestBtn = el('button', {
+    class: 'btn btn-sm btn-danger',
+    style: 'display:none;',
+    onClick: async () => {
+      if (!confirm('Delete every test sale? This restocks any items they deducted and cannot be undone.')) return;
+      try {
+        const { deletedCount } = await apiClient.post('/transactions/clear-test', {});
+        notification.success(`Deleted ${deletedCount} test sale${deletedCount === 1 ? '' : 's'}.`);
+        refresh();
+      } catch (err) {
+        notification.error(`Failed to clear test sales: ${err.message}`);
+      }
+    }
+  }, 'Clear test sales');
+
   container.appendChild(el('div', { class: 'view-header transactions-filter-bar' }, [
     el('h2', {}, 'Transactions'),
     el('label', { class: 'filter-label' }, ['Till', el('select', { disabled: true }, [el('option', {}, 'Till 1')])]),
     el('label', { class: 'filter-label' }, ['Cashier', cashierSelect]),
     el('label', { class: 'filter-label' }, ['Status', statusSelect]),
-    el('label', { class: 'filter-label' }, ['Date', datePicker])
+    el('label', { class: 'filter-label' }, ['Date', datePicker]),
+    el('label', { class: 'filter-label filter-label-checkbox' }, [includeTestCheckbox, 'Show test sales']),
+    clearTestBtn
   ]));
 
   // --- Two-pane layout ---
@@ -107,9 +133,15 @@ export async function mountTransactionList(container) {
       const query = { status: filters.status, from: filters.from, to: filters.to, customerId: undefined };
       const cleanQuery = Object.fromEntries(Object.entries(query).filter(([, v]) => v));
       const params = new URLSearchParams(cleanQuery).toString();
+      // Reports (summary/top-products) never include test sales,
+      // regardless of "Show test sales" below -- that checkbox only
+      // controls what shows up in the Transaction Details table itself,
+      // so test sales can actually be found and deleted, without ever
+      // touching the real figures on the stat cards.
+      const listParams = new URLSearchParams({ ...cleanQuery, ...(filters.includeTest ? { includeTest: 'true' } : {}) }).toString();
 
       const [transactions, summary, topProducts, products, users, outstandingCredit] = await Promise.all([
-        apiClient.get(`/transactions${params ? `?${params}` : ''}`),
+        apiClient.get(`/transactions${listParams ? `?${listParams}` : ''}`),
         apiClient.get(`/transactions/reports/summary${params ? `?${params}` : ''}`),
         apiClient.get(`/transactions/reports/top-products${params ? `?${params}` : ''}`),
         apiClient.get('/inventory/products'),
@@ -142,7 +174,14 @@ export async function mountTransactionList(container) {
 
       renderTable(transactionsTable, {
         columns: [
-          { key: 'id', label: 'Invoice', render: (t) => t.id.slice(0, 8) },
+          {
+            key: 'id',
+            label: 'Invoice',
+            render: (t) => el('span', {}, [
+              t.id.slice(0, 8),
+              t.isTest ? el('span', { class: 'po-status-badge po-status-partially_received', style: 'margin-left:0.4rem;' }, 'TEST') : null
+            ])
+          },
           { key: 'createdAt', label: 'Date', render: (t) => formatDate(t.createdAt) },
           { key: 'total', label: 'Total', render: (t) => formatMoney(t.total, symbol) },
           { key: 'paidAmount', label: 'Paid', render: (t) => formatMoney(t.paidAmount ?? t.total, symbol) },
@@ -167,12 +206,52 @@ export async function mountTransactionList(container) {
             key: 'view',
             label: 'View',
             render: (t) => {
-              const btn = el('button', { class: 'btn btn-sm btn-info' }, 'View');
-              btn.addEventListener('click', (e) => {
+              const viewBtn = el('button', { class: 'btn btn-sm btn-info' }, 'View');
+              viewBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 openTransactionDetail(t, { onVoided: () => refresh() });
               });
-              return btn;
+              if (t.isTest) {
+                // Only a test sale can be deleted outright -- a real
+                // sale is only ever voided (see the View screen), which
+                // keeps it in the record with status:'voided' rather
+                // than erasing it.
+                const deleteBtn = el('button', { class: 'btn btn-sm btn-danger', title: 'Delete this test sale' }, '\u2715');
+                deleteBtn.addEventListener('click', async (e) => {
+                  e.stopPropagation();
+                  if (!confirm('Delete this test sale? This restocks any items it deducted and cannot be undone.')) return;
+                  try {
+                    await apiClient.delete(`/transactions/${t.id}`);
+                    notification.success('Test sale deleted.');
+                    refresh();
+                  } catch (err) {
+                    notification.error(`Failed to delete: ${err.message}`);
+                  }
+                });
+                return el('span', { style: 'display:flex; gap:0.3rem;' }, [viewBtn, deleteBtn]);
+              }
+              if (t.type !== 'return') {
+                // Lets an old/unwanted real sale (e.g. made while
+                // setting the store up, before going live) be cleared
+                // out: flagging it as a test sale makes it eligible for
+                // the delete button above, or the bulk "Clear test
+                // sales" action -- without this, a real sale has no
+                // delete path at all, only Void (see View).
+                const markTestBtn = el('button', { class: 'btn btn-sm btn-secondary', title: 'Mark as a test sale, so it can be deleted' }, '\u{1F9EA}');
+                markTestBtn.addEventListener('click', async (e) => {
+                  e.stopPropagation();
+                  if (!confirm('Mark this as a test sale? It will be excluded from reports and can then be deleted. Tick "Show test sales" above to find and delete it.')) return;
+                  try {
+                    await apiClient.post(`/transactions/${t.id}/mark-test`, {});
+                    notification.success('Marked as a test sale.');
+                    refresh();
+                  } catch (err) {
+                    notification.error(`Failed to mark: ${err.message}`);
+                  }
+                });
+                return el('span', { style: 'display:flex; gap:0.3rem;' }, [viewBtn, markTestBtn]);
+              }
+              return viewBtn;
             }
           }
         ],

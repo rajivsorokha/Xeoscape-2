@@ -32,7 +32,7 @@ export function openQuickLabelPrint(product) {
   // typing the same few numbers over and over is exactly the kind of
   // friction a quick preset removes. They just set the field; the
   // number typed in still wins if it's the last thing touched.
-  const QUICK_QUANTITIES = [2, 4, 6, 8, 12];
+  const QUICK_QUANTITIES = [2, 4, 6, 8, 12, 24, 50, 60, 100];
   const quickQtyButtons = el('div', { class: 'label-qty-presets' }, QUICK_QUANTITIES.map((n) => (
     el('button', {
       type: 'button',

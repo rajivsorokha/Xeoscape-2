@@ -15,7 +15,7 @@ import { renderReceipt } from './receipt.js';
 
 const KEYPAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0'];
 
-export function openPaymentDialog({ cartManager, currentUserId, discount = 0, customerId = null, phone = '', onComplete }) {
+export function openPaymentDialog({ cartManager, currentUserId, discount = 0, customerId = null, phone = '', isTest = false, onComplete }) {
   const subtotal = cartManager.getSubtotal();
   let paymentMethod = 'cash';
   let amountTendered = '';
@@ -184,6 +184,7 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
     discount > 0 ? `Discount applied: ${formatMoney(discount, symbol)}` : '');
 
   const formEl = el('div', { class: 'payment-form' }, [
+    isTest ? el('div', { class: 'payment-test-sale-banner' }, '\u{1F9EA} TEST SALE \u2014 will not count toward sales reports') : null,
     tabs,
     fields,
     cardInfoRow,
@@ -213,11 +214,12 @@ export function openPaymentDialog({ cartManager, currentUserId, discount = 0, cu
         discount,
         customerId: customerId || null,
         cashierId: currentUserId,
-        paidAmount: paymentMethod === 'card' ? total() : tendered
+        paidAmount: paymentMethod === 'card' ? total() : tendered,
+        isTest
       });
       modalManager.close();
       cartManager.clear();
-      notification.success('Sale completed.');
+      notification.success(isTest ? 'Test sale completed.' : 'Sale completed.');
       renderReceipt(transaction, { phone });
       onComplete?.(transaction);
     } catch (err) {

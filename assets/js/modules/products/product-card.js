@@ -4,6 +4,7 @@
 import { el } from '../../shared/utils.js';
 import { formatMoney } from '../../shared/formatters.js';
 import settingsStore from '../../shared/settings-store.js';
+import { openQuickLabelPrint } from '../labels/label-quick-print.js';
 
 function renderImagePlaceholder(product) {
   if (product.imageUrl) {
@@ -43,6 +44,15 @@ export function renderProductCard(product, { onEdit, onAddToCart } = {}) {
       el('div', { class: 'product-card-stock' }, `Stock: ${product.stock ?? 0}`),
       el('div', { class: 'product-card-actions' }, [
         el('button', { class: 'btn btn-sm btn-secondary', onClick: onEdit }, 'Edit'),
+        // Matches the \u{1F3F7} "Print barcode labels" action already on
+        // the Table view (product-table-view.js) -- same
+        // openQuickLabelPrint() dialog, so grid-view shoppers get the
+        // same one-click reprint without switching views.
+        el('button', {
+          class: 'btn btn-sm btn-info',
+          title: 'Print barcode labels',
+          onClick: () => openQuickLabelPrint(product)
+        }, '\u{1F3F7}'),
         el('button', { class: 'btn btn-sm btn-primary', onClick: onAddToCart }, 'Add to Cart')
       ])
     ])

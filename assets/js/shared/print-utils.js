@@ -38,6 +38,8 @@
 // never touches a second window or frame, it isn't exposed to either
 // of the failure modes above.
 
+const PRINT_AREA_ID = 'app-print-area';
+
 let styleEl = null;
 let containerEl = null;
 
@@ -48,17 +50,109 @@ function cleanupPrintArea() {
   styleEl = null;
 }
 
+/** Resolves once every <img> under `root` has loaded or failed, or after `timeoutMs`. */
+function waitForImages(root, timeoutMs = 1500) {
+  const images = Array.from(root.querySelectorAll('img'));
+  if (!images.length) return Promise.resolve();
+  const settled = images.map((img) => (img.complete ? Promise.resolve() : new Promise((resolve) => {
+    img.addEventListener('load', resolve, { once: true });
+    img.addEventListener('error', resolve, { once: true });
+  })));
+  return Promise.race([
+    Promise.all(settled),
+    new Promise((resolve) => setTimeout(resolve, timeoutMs))
+  ]);
+}
+
+/**
+ * Measures how tall the print content actually renders (a store logo
+ * or a long item list makes this different every time) and bakes that
+ * measurement into the `@page` rule in place of the invalid
+ * `<length> auto` pairing -- see PAGE_AUTO_HEIGHT_RE above.
+ *
+ * Rendered off-screen (`position:fixed; left:-10000px`) rather than
+ * `display:none`, since a display:none element has no box to measure
+ * -- it needs to actually lay out, just not be visible while it does.
+ *
+ * @returns {string} styleText, with `auto` replaced by a concrete
+ *   height when the pattern is present; unchanged otherwise.
+ */
+async function resolveAutoPageHeight(styleText, containerEl) {
+  if (!PAGE_AUTO_HEIGHT_RE.test(styleText)) return styleText;
+
+  const prevCssText = containerEl.style.cssText;
+  containerEl.style.cssText = 'display:block;position:fixed;left:-10000px;top:0;visibility:hidden;';
+
+  await waitForImages(containerEl);
+  // One more frame so the browser has actually laid the content out
+  // with its final styles/images before scrollHeight is read.
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+
+  // A couple of mm of slack: the measurement is taken at screen (96
+  // CSS px/in) scale and rounds down a hair versus the print engine's
+  // own layout, and it's far better to feed one blank line than to
+  // clip the last line of a receipt.
+  const PX_PER_MM = 96 / 25.4;
+  const heightMm = Math.ceil(containerEl.scrollHeight / PX_PER_MM) + 3;
+
+  containerEl.style.cssText = prevCssText;
+
+  return styleText.replace(PAGE_AUTO_HEIGHT_RE, `$1${heightMm}mm$2`);
+}
+
 /**
  * Extracts the <style> rules and <body> markup out of a complete HTML
  * document string, so they can be spliced into the live app page
  * rather than a separate window/frame.
+ *
+ * The documents built by label-sheet.js and receipt.js are written as
+ * *standalone* documents -- `html, body { ... }` is correct there,
+ * because label-sheet.js's HTML doubles as an <iframe srcdoc="..."> for
+ * the live preview, where it really does own a whole document. But
+ * once that same HTML is spliced into THIS page's real <html>/<body>
+ * (see the file header for why it's done this way), a bare `html` or
+ * `body` selector no longer means "the printed document's root" -- it
+ * means the app's actual root, so a receipt's `width: 80mm` or a
+ * label sheet's `background: #fff` would apply to the whole running
+ * app the moment Print is clicked, not just the printed area. That's
+ * a real bug: the on-screen app visibly collapses to receipt width
+ * for as long as the print dialog is open. Rewriting those selectors
+ * to target the print container instead keeps both use sites correct
+ * without having to make label-sheet.js/receipt.js aware of which
+ * consumer is reading their output.
  */
+function scopeHtmlBodySelectors(cssText) {
+  return cssText
+    .replace(/\bhtml\s*,\s*body\b/g, `#${PRINT_AREA_ID}`)
+    .replace(/(^|[\s{},])body(?=[\s{},])/g, `$1#${PRINT_AREA_ID}`);
+}
+
 function splitDocument(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  const styleText = Array.from(doc.querySelectorAll('style')).map((s) => s.textContent).join('\n');
+  const styleText = scopeHtmlBodySelectors(
+    Array.from(doc.querySelectorAll('style')).map((s) => s.textContent).join('\n')
+  );
   const bodyHtml = doc.body ? doc.body.innerHTML : html;
   return { styleText, bodyHtml };
 }
+
+// Matches the `@page { size: <width>mm auto; ... }` pattern used for
+// continuous thermal roll stock (receipt.js), where the page is a
+// fixed width but an unknown height until the content is laid out.
+// `auto` paired with an explicit length isn't valid CSS -- the `size`
+// descriptor is either a bare keyword (auto/portrait/landscape/a
+// <page-size> name) or one-or-two <length>s, never a mix (see
+// https://developer.mozilla.org/docs/Web/CSS/@page/size). An invalid
+// declaration is simply dropped, which leaves the page at its
+// initial size -- normally the printer/driver's default sheet (A4,
+// Letter...), not the 80mm roll. On a continuous-feed thermal
+// printer that prints as a long blank run of paper after the actual
+// receipt content, which is exactly the "gap" a physical print shows.
+// Rather than gamble on a given engine special-casing this pairing,
+// PAGE_AUTO_HEIGHT_RE below finds it so the real height can be
+// measured from the laid-out content and substituted in as a plain
+// number before printing -- valid on every engine.
+const PAGE_AUTO_HEIGHT_RE = /(@page\s*\{[^}]*size:\s*[\d.]+mm\s+)auto(\s*;[^}]*\})/i;
 
 /**
  * Prints `html` (a complete HTML document, e.g. from
@@ -72,20 +166,31 @@ function splitDocument(html) {
  *   `afterprint`)
  */
 export function printHtml(html) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     // In case a previous call's cleanup was somehow skipped.
     cleanupPrintArea();
 
-    const { styleText, bodyHtml } = splitDocument(html);
+    const { styleText: scopedStyleText, bodyHtml } = splitDocument(html);
 
     containerEl = document.createElement('div');
-    containerEl.id = 'app-print-area';
+    containerEl.id = PRINT_AREA_ID;
     containerEl.innerHTML = bodyHtml;
     // Hidden during normal use; the stylesheet below is what reveals
     // it, and only while an actual print is in progress -- so it never
-    // affects the on-screen app the rest of the time.
+    // affects the on-screen app the rest of the time. Appended before
+    // the auto-height measurement below so that pass has real, styled
+    // content to lay out and measure.
     containerEl.style.display = 'none';
+    document.body.appendChild(containerEl);
 
+    resolveAutoPageHeight(scopedStyleText, containerEl).then((styleText) => {
+      finishPrint(styleText, resolve, reject);
+    }).catch(reject);
+  });
+}
+
+function finishPrint(styleText, resolve, reject) {
+  try {
     styleEl = document.createElement('style');
     styleEl.id = 'app-print-style';
     styleEl.textContent = `
@@ -125,14 +230,16 @@ ${styleText}
     position: absolute;
     top: 0;
     left: 0;
-    width: 100%;
-    margin: 0;
+    /* No width/margin forced here: label-sheet.js and receipt.js each
+       size and centre their own content (now correctly scoped to
+       #app-print-area -- see scopeHtmlBodySelectors above), and a
+       blanket width:100% here would override a receipt's deliberate
+       80mm and reopen the exact "blank gap" bug this file fixes. */
   }
 }
     `;
 
     document.head.appendChild(styleEl);
-    document.body.appendChild(containerEl);
 
     // Let layout settle before printing -- calling print() in the same
     // tick as inserting the content can catch it mid-render.
@@ -143,5 +250,8 @@ ${styleText}
       setTimeout(cleanup, 15000);
       window.print();
     });
-  });
+  } catch (err) {
+    cleanupPrintArea();
+    reject(err);
+  }
 }

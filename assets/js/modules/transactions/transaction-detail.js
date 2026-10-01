@@ -37,6 +37,32 @@ export function openTransactionDetail(transaction, { onVoided } = {}) {
 
   const actions = [{ label: 'Close', className: 'btn-secondary' }];
 
+  // A real sale can only ever be voided, never deleted outright (see
+  // core/transaction-manager.js) -- this is the one way to actually
+  // get rid of an old sale that was a mistake or made while setting
+  // the store up: flag it as a test sale (any status, including
+  // already-voided), then delete/bulk-clear it from the Transactions
+  // screen the same way a sale made with "This is a test sale" ticked
+  // would be.
+  if (!transaction.isTest && !isReturn) {
+    actions.unshift({
+      label: 'Mark as Test Sale',
+      className: 'btn-secondary',
+      closeOnClick: false,
+      onClick: async () => {
+        if (!confirm('Mark this as a test sale? It will be excluded from reports and can then be deleted from the Transactions screen.')) return;
+        try {
+          await apiClient.post(`/transactions/${transaction.id}/mark-test`, {});
+          notification.success('Marked as a test sale.');
+          modalManager.close();
+          onVoided?.();
+        } catch (err) {
+          notification.error(err.message);
+        }
+      }
+    });
+  }
+
   if (transaction.status === 'completed' && !isReturn) {
     actions.unshift({
       label: 'Return Items',
