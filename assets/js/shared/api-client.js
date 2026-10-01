@@ -68,7 +68,14 @@ const apiClient = {
   /** Triggers a browser download of a GET endpoint that returns a file (e.g. a CSV template). */
   async downloadFile(endpoint, filename) {
     const res = await fetch(`${BASE_URL}${endpoint}`, { headers: authHeaders() });
-    if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+    if (!res.ok) {
+      // Surface the server's own reason (e.g. "ENOENT ... Helvetica.afm")
+      // rather than a bare status code that hides what went wrong.
+      const data = await res.json().catch(() => null);
+      const err = new Error((data && data.error) ? `Download failed: ${data.error}` : `Download failed: ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

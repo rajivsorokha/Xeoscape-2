@@ -542,3 +542,13 @@
     padding: 0 !important;
   }
 }
+
+/* --- Bulk barcode printing: tick boxes + toolbar on the product table --- */
+.product-bulk-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+.app-table .select-col { width: 2.2rem; text-align: center; }
+.app-table .select-col input { width: auto; margin: 0; cursor: pointer; }
+.label-bulk-table-wrap { max-height: 240px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 4px; margin-bottom: 0.5rem; }
+.label-bulk-table td, .label-bulk-table th { padding: 0.35rem 0.5rem; }
+.label-bulk-qty { width: 5rem; }
+.label-bulk-total { margin: 0.5rem 0 0.75rem; font-weight: 600; font-size: 0.9rem; }
+.label-bulk-print .label-preview-frame { height: 170px; }

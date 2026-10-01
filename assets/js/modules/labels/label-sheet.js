@@ -23,6 +23,7 @@ import { printHtml } from '../../shared/print-utils.js';
  * @property {number} [price]
  * @property {number} [mrp]
  * @property {number} [quantity]      how many copies of this label
+ * @property {'CODE128'|'EAN13'} [symbology] overrides the batch-wide symbology for this label
  */
 
 /**
@@ -145,7 +146,7 @@ function renderLabel(item, size, options) {
 
   let barcodeHtml;
   try {
-    barcodeHtml = barcodeSvg(item.code, symbology, {
+    barcodeHtml = barcodeSvg(item.code, item.symbology || symbology, {
       widthMm: metrics.barWidthMm,
       heightMm: metrics.barHeightMm,
       caption: showCodeText ? item.code : false,

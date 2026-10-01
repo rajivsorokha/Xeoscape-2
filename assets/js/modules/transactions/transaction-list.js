@@ -95,6 +95,17 @@ export async function mountTransactionList(container) {
     }
   }, 'Clear test sales');
 
+  // After a sale is marked as a test sale it is (correctly) excluded
+  // from the default list -- but that made the row vanish and look as
+  // if it had been deleted. Switch "Show test sales" on instead, so
+  // the sale stays visible with its TEST badge and its own delete (X)
+  // button, and nothing is removed until the user clicks that.
+  function revealTestSales() {
+    filters.includeTest = true;
+    includeTestCheckbox.checked = true;
+    clearTestBtn.style.display = '';
+  }
+
   container.appendChild(el('div', { class: 'view-header transactions-filter-bar' }, [
     el('h2', {}, 'Transactions'),
     el('label', { class: 'filter-label' }, ['Till', el('select', { disabled: true }, [el('option', {}, 'Till 1')])]),
@@ -209,7 +220,7 @@ export async function mountTransactionList(container) {
               const viewBtn = el('button', { class: 'btn btn-sm btn-info' }, 'View');
               viewBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                openTransactionDetail(t, { onVoided: () => refresh() });
+                openTransactionDetail(t, { onVoided: () => refresh(), onMarkedTest: () => { revealTestSales(); refresh(); } });
               });
               if (t.isTest) {
                 // Only a test sale can be deleted outright -- a real
@@ -228,7 +239,25 @@ export async function mountTransactionList(container) {
                     notification.error(`Failed to delete: ${err.message}`);
                   }
                 });
-                return el('span', { style: 'display:flex; gap:0.3rem;' }, [viewBtn, deleteBtn]);
+                const buttons = [viewBtn];
+                if (t.type !== 'return') {
+                  // Marked the wrong sale? Put it back as a normal sale.
+                  const undoBtn = el('button', { class: 'btn btn-sm btn-warning', title: 'Undo test mark \u2014 make this a normal sale again' }, '\u21A9');
+                  undoBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if (!confirm('Undo the test mark? This goes back to being a normal sale and counts in reports again.')) return;
+                    try {
+                      await apiClient.post(`/transactions/${t.id}/unmark-test`, {});
+                      notification.success('Test mark removed. This is a normal sale again.');
+                      refresh();
+                    } catch (err) {
+                      notification.error(`Failed to undo: ${err.message}`);
+                    }
+                  });
+                  buttons.push(undoBtn);
+                }
+                buttons.push(deleteBtn);
+                return el('span', { style: 'display:flex; gap:0.3rem;' }, buttons);
               }
               if (t.type !== 'return') {
                 // Lets an old/unwanted real sale (e.g. made while
@@ -240,10 +269,11 @@ export async function mountTransactionList(container) {
                 const markTestBtn = el('button', { class: 'btn btn-sm btn-secondary', title: 'Mark as a test sale, so it can be deleted' }, '\u{1F9EA}');
                 markTestBtn.addEventListener('click', async (e) => {
                   e.stopPropagation();
-                  if (!confirm('Mark this as a test sale? It will be excluded from reports and can then be deleted. Tick "Show test sales" above to find and delete it.')) return;
+                  if (!confirm('Mark this as a test sale? It will be excluded from reports, but it is NOT deleted. It stays in this list with a TEST badge until you click its \u2715 button.')) return;
                   try {
                     await apiClient.post(`/transactions/${t.id}/mark-test`, {});
-                    notification.success('Marked as a test sale.');
+                    notification.success('Marked as a test sale. It is not deleted \u2014 click \u2715 on the row to delete it.');
+                    revealTestSales();
                     refresh();
                   } catch (err) {
                     notification.error(`Failed to mark: ${err.message}`);

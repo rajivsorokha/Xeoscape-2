@@ -21,6 +21,7 @@ import settingsStore from '../../shared/settings-store.js';
 import notification from '../../ui/notification.js';
 import { LABEL_SIZES, DEFAULT_LABEL_SIZE_ID, findLabelSize, customLabelSize, labelsPerPage } from '../labels/label-sizes.js';
 import { buildLabelSheetHtml, expandByQuantity, openPrintWindow, estimateXDimensionMm, MIN_X_DIMENSION_MM } from '../labels/label-sheet.js';
+import { labelQueue } from '../labels/label-queue-store.js';
 
 // Mirrors the Garment Type options in config/product-fields.json.
 // Kept as a plain list here rather than fetched, so quick entry still
@@ -41,8 +42,9 @@ const SIZES = [
 let queueSeq = 0;
 
 export async function mountBarcodeLabels(container) {
-  /** @type {Array<object>} labels waiting to be printed */
-  const queue = [];
+  /** @type {Array<object>} labels waiting to be printed -- shared with the product table's
+   *  "Add to label queue" button (see labels/label-queue-store.js), so it outlives this panel. */
+  const queue = labelQueue;
 
   const state = {
     sizeId: DEFAULT_LABEL_SIZE_ID,

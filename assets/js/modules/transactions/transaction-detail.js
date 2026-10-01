@@ -9,7 +9,7 @@ import settingsStore from '../../shared/settings-store.js';
 import modalManager from '../../ui/modal-manager.js';
 import notification from '../../ui/notification.js';
 
-export function openTransactionDetail(transaction, { onVoided } = {}) {
+export function openTransactionDetail(transaction, { onVoided, onMarkedTest } = {}) {
   const symbol = settingsStore.getCurrencySymbol();
   const statusLabel = { completed: 'Paid', pending: 'Unpaid (held)', voided: 'Voided' }[transaction.status] || transaction.status;
   const isReturn = transaction.type === 'return';
@@ -50,10 +50,29 @@ export function openTransactionDetail(transaction, { onVoided } = {}) {
       className: 'btn-secondary',
       closeOnClick: false,
       onClick: async () => {
-        if (!confirm('Mark this as a test sale? It will be excluded from reports and can then be deleted from the Transactions screen.')) return;
+        if (!confirm('Mark this as a test sale? It will be excluded from reports but NOT deleted. It stays in the Transactions list with a TEST badge until you delete it there.')) return;
         try {
           await apiClient.post(`/transactions/${transaction.id}/mark-test`, {});
-          notification.success('Marked as a test sale.');
+          notification.success('Marked as a test sale. It is not deleted \u2014 use the \u2715 button on its row to delete it.');
+          modalManager.close();
+          (onMarkedTest || onVoided)?.();
+        } catch (err) {
+          notification.error(err.message);
+        }
+      }
+    });
+  }
+
+  if (transaction.isTest && !isReturn) {
+    actions.unshift({
+      label: 'Undo Test Mark',
+      className: 'btn-warning',
+      closeOnClick: false,
+      onClick: async () => {
+        if (!confirm('Undo the test mark? This goes back to being a normal sale and counts in reports again.')) return;
+        try {
+          await apiClient.post(`/transactions/${transaction.id}/unmark-test`, {});
+          notification.success('Test mark removed. This is a normal sale again.');
           modalManager.close();
           onVoided?.();
         } catch (err) {

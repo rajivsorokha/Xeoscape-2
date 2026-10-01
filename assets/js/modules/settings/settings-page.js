@@ -23,6 +23,7 @@ import { mountAiSettings } from './ai-settings-panel.js';
 import { mountBackupSettings } from './backup-settings.js';
 import { mountBulkImport } from './bulk-import.js';
 import { mountBarcodeLabels } from './barcode-labels.js';
+import { labelQueueNav } from '../labels/label-queue-store.js';
 import { createBackToPosButton } from '../../ui/back-to-pos-button.js';
 import notification from '../../ui/notification.js';
 
@@ -49,6 +50,11 @@ const SECTIONS = [
 
 export async function mountSettingsPage(container, { onStoreTypeChanged } = {}) {
   let activeId = SECTIONS[0].id;
+  // "Open Barcode Labels" in the product table asks for this section.
+  if (labelQueueNav.openBarcodeLabels) {
+    activeId = 'barcode-labels';
+    labelQueueNav.openBarcodeLabels = false;
+  }
 
   const menu = el('nav', { class: 'settings-page-menu' },
     SECTIONS.map((section) => el('button', {
