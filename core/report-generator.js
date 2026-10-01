@@ -13,6 +13,8 @@ class ReportGenerator {
     // (a transaction's own dueAmount is just a snapshot of what was
     // deferred at sale time, and doesn't reflect payments made since).
     this.customersDb = dataDir ? new SqliteStore(dataDir, 'customers') : null;
+    // Used by core/report-exports.js to show cashier names.
+    this.usersDb = dataDir ? new SqliteStore(dataDir, 'users') : null;
   }
 
   async salesSummary({ from, to } = {}) {

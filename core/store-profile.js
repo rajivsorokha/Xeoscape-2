@@ -34,6 +34,9 @@ const DEFAULT_PROFILE = {
   // the Due / Outstanding report and WhatsApp payment reminders.
   creditSalesEnabled: false,
   receiptFooter: 'Thank you for shopping with us!',
+  // Printed receipt typeface: 'clear' | 'impact' | 'classic' (see
+  // RECEIPT_FONT_CSS in assets/js/modules/checkout/receipt.js).
+  receiptFont: 'clear',
   // URL of the shop's logo, shown on receipts and throughout the app
   // (login screen, header). Defaults to the bundled Mini Mode logo
   // (assets/images/store-logo.png, served at /images/store-logo.png
