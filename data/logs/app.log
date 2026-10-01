@@ -37,3 +37,19 @@
 [2026-10-01T04:46:31.113Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
 [2026-10-01T04:59:17.162Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
 [2026-10-01T04:59:17.220Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-10-01T07:46:20.248Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
+[2026-10-01T07:46:20.296Z] ERROR: Backend server failed to start: Error: listen EADDRINUSE: address already in use 127.0.0.1:4173
+    at Server.setupListenHandle [as _listen2] (node:net:1941:16)
+    at listenInCluster (node:net:1998:12)
+    at node:net:2207:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+[2026-10-01T07:46:40.794Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
+[2026-10-01T07:46:40.845Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-10-01T08:01:06.783Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
+[2026-10-01T08:01:06.832Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-10-01T08:08:08.175Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
+[2026-10-01T08:08:08.226Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-10-01T08:20:27.283Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
+[2026-10-01T08:20:27.331Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
+[2026-10-01T09:47:14.794Z] INFO: Logging initialized. Log file: C:\Users\PC\Desktop\Pharmacy\Thomas\Xeoscape-2-Thomas\Xeoscape-2-full-update\data\logs\app.log
+[2026-10-01T09:47:14.839Z] INFO: Xeoscape server listening at http://127.0.0.1:4173
