@@ -81,6 +81,16 @@ function buildTransactionsRouter({ transactionManager, reportGenerator }) {
     }
   });
 
+  // POST /api/transactions/:id/unmark-test -- undoes mark-test, for a
+  // sale flagged by mistake. Puts it back in reports as a normal sale.
+  router.post('/:id/unmark-test', requirePermission('perm_transactions'), async (req, res) => {
+    try {
+      res.json(await transactionManager.unmarkAsTest(req.params.id));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   // POST /api/transactions/clear-test -- bulk-deletes every test sale.
   router.post('/clear-test', requirePermission('perm_transactions'), async (req, res) => {
     try {

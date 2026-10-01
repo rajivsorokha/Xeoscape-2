@@ -6,6 +6,7 @@ const express = require('express');
 const { resolveRange, PRESETS } = require('../core/report-ranges');
 const { buildReportContent, sendReportEmail, sendTestEmail } = require('../core/report-mailer');
 const { buildReportPdf } = require('../core/report-pdf');
+const { requirePermission } = require('./auth-middleware');
 
 function buildReportsRouter({ reportGenerator, storeProfile, emailSettings }) {
   const router = express.Router();
@@ -93,12 +94,13 @@ function buildReportsRouter({ reportGenerator, storeProfile, emailSettings }) {
       res.setHeader('Content-Disposition', `attachment; filename="sales-report-${safeLabel}.pdf"`);
       res.send(pdf);
     } catch (err) {
-      res.status(400).json({ error: err.message });
+      console.error('PDF report failed:', err);
+      res.status(500).json({ error: err.message });
     }
   });
 
   // POST /api/reports/send  { range }
-  router.post('/send', async (req, res) => {
+  router.post('/send', requirePermission('perm_settings'), async (req, res) => {
     const { range = 'today' } = req.body || {};
     if (!PRESETS.includes(range)) {
       return res.status(400).json({ error: `range must be one of: ${PRESETS.join(', ')}` });
@@ -112,7 +114,7 @@ function buildReportsRouter({ reportGenerator, storeProfile, emailSettings }) {
   });
 
   // POST /api/reports/test-email
-  router.post('/test-email', async (req, res) => {
+  router.post('/test-email', requirePermission('perm_settings'), async (req, res) => {
     try {
       const result = await sendTestEmail({ emailSettings });
       res.json({ ok: true, ...result });

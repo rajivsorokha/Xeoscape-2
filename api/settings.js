@@ -58,9 +58,15 @@ function buildSettingsRouter({ storeConfig, storeProfile, emailSettings, aiSetti
   });
 
   router.put('/email', requirePermission('perm_settings'), async (req, res) => {
-    const updated = await emailSettings.update(req.body);
-    const { smtpPass, ...safe } = updated;
-    res.json({ ...safe, smtpPassSet: Boolean(smtpPass) });
+    try {
+      const updated = await emailSettings.update(req.body || {});
+      const { smtpPass, ...safe } = updated;
+      res.json({ ...safe, smtpPassSet: Boolean(smtpPass) });
+    } catch (err) {
+      // Validation problems (bad port, malformed address...) come back
+      // as a readable message instead of leaving the request hanging.
+      res.status(400).json({ error: err.message });
+    }
   });
 
   // AI assistant settings: active provider (Anthropic/Groq/Google AI
