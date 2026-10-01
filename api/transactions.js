@@ -10,9 +10,13 @@ function buildTransactionsRouter({ transactionManager, reportGenerator }) {
   const router = express.Router();
 
   // GET /api/transactions
+  // includeTest=true also returns sales marked as a test sale (see
+  // core/transaction-manager.js#checkout's isTest flag) -- left off by
+  // default so every ordinary caller (reports, dashboards) keeps test
+  // sales out of real figures without having to know about them.
   router.get('/', async (req, res) => {
-    const { from, to, status, customerId } = req.query;
-    res.json(await transactionManager.list({ from, to, status, customerId }));
+    const { from, to, status, customerId, includeTest } = req.query;
+    res.json(await transactionManager.list({ from, to, status, customerId, includeTest: includeTest === 'true' }));
   });
 
   // GET /api/transactions/:id
@@ -48,6 +52,39 @@ function buildTransactionsRouter({ transactionManager, reportGenerator }) {
     try {
       const transaction = await transactionManager.payFromHold(req.params.id, req.body);
       res.json(transaction);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/transactions/:id -- hard-delete, but ONLY for sales
+  // marked as a test sale (see transaction-manager.js#deleteTestSale).
+  // A real sale can never be deleted this way, only voided.
+  router.delete('/:id', requirePermission('perm_transactions'), async (req, res) => {
+    try {
+      const result = await transactionManager.deleteTestSale(req.params.id);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // POST /api/transactions/:id/mark-test -- retroactively flags an
+  // existing (real-looking) sale as a test sale, e.g. ones made while
+  // setting the store up before going live. Once flagged it can be
+  // deleted via DELETE /:id or swept up by /clear-test below.
+  router.post('/:id/mark-test', requirePermission('perm_transactions'), async (req, res) => {
+    try {
+      res.json(await transactionManager.markAsTest(req.params.id));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // POST /api/transactions/clear-test -- bulk-deletes every test sale.
+  router.post('/clear-test', requirePermission('perm_transactions'), async (req, res) => {
+    try {
+      res.json(await transactionManager.clearTestSales());
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
