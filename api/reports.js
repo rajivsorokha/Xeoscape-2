@@ -7,6 +7,7 @@ const { resolveRange, PRESETS } = require('../core/report-ranges');
 const { buildReportContent, sendReportEmail, sendTestEmail } = require('../core/report-mailer');
 const { buildReportPdf } = require('../core/report-pdf');
 const { requirePermission } = require('./auth-middleware');
+const exportsCore = require('../core/report-exports');
 
 function buildReportsRouter({ reportGenerator, storeProfile, emailSettings }) {
   const router = express.Router();
@@ -95,6 +96,45 @@ function buildReportsRouter({ reportGenerator, storeProfile, emailSettings }) {
       res.send(pdf);
     } catch (err) {
       console.error('PDF report failed:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/reports/dashboard?days=30 -- sales performance for the
+  // last N days, compared with the N days before that.
+  router.get('/dashboard', async (req, res) => {
+    try {
+      res.json(await exportsCore.dashboard(reportGenerator, { days: req.query.days }));
+    } catch (err) {
+      console.error('Dashboard failed:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- Detail reports (Transactions / Products / Customers) ---------
+  // GET /api/reports/detail/:kind?from=YYYY-MM-DD&to=YYYY-MM-DD&format=csv
+  // kind = transactions | products | customers. Dates are optional
+  // (blank = all time). format=csv downloads an Excel-ready file.
+  const DETAIL_BUILDERS = {
+    transactions: exportsCore.transactionDetails,
+    products: exportsCore.productDetails,
+    customers: exportsCore.customerReport
+  };
+  router.get('/detail/:kind', async (req, res) => {
+    const build = DETAIL_BUILDERS[req.params.kind];
+    if (!build) return res.status(404).json({ error: 'Unknown report' });
+    const { from, to, format, minVisits } = req.query;
+    try {
+      const report = await build(reportGenerator, { from: from || undefined, to: to || undefined, minVisits });
+      if (format === 'csv') {
+        const stamp = new Date().toISOString().slice(0, 10);
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${req.params.kind}-report-${stamp}.csv"`);
+        return res.send(exportsCore.toCsv(report));
+      }
+      res.json(report);
+    } catch (err) {
+      console.error('Detail report failed:', err);
       res.status(500).json({ error: err.message });
     }
   });
