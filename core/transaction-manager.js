@@ -20,7 +20,7 @@ class TransactionManager {
   /**
    * items: [{ productId, quantity }]
    */
-  async checkout({ items, customerId = null, paymentMethod = 'cash', cashierId = null, discount = 0, paidAmount = null }) {
+  async checkout({ items, customerId = null, paymentMethod = 'cash', cashierId = null, discount = 0, paidAmount = null, isTest = false }) {
     if (!Array.isArray(items) || items.length === 0) {
       throw new Error('Transaction must include at least one item');
     }
@@ -78,9 +78,25 @@ class TransactionManager {
 
     const change = Number(Math.max(paid - total, 0).toFixed(2));
 
-    // Deduct stock for each line item
-    for (const li of lineItems) {
-      await this.inventoryManager.deductForSale(li.productId, li.quantity, `txn-checkout`);
+    // Deduct stock for each line item. The availability check above
+    // happens in its own earlier loop (not atomically with this one),
+    // so two lines for the same product, or a concurrent sale on
+    // another till, can still mean a later line here fails even though
+    // every line looked fine a moment ago. If that happens mid-loop,
+    // roll back whatever this same checkout already deducted -- the
+    // transaction record is never written when this throws, so without
+    // this, stock would be silently gone for a sale that doesn't exist.
+    const deducted = [];
+    try {
+      for (const li of lineItems) {
+        await this.inventoryManager.deductForSale(li.productId, li.quantity, `txn-checkout`);
+        deducted.push(li);
+      }
+    } catch (err) {
+      for (const li of deducted) {
+        await this.inventoryManager.restock(li.productId, li.quantity, `txn-checkout-rollback`);
+      }
+      throw err;
     }
 
     // Credit the due amount onto the customer's running balance --
@@ -107,6 +123,12 @@ class TransactionManager {
       cashierId,
       paymentMethod,
       status: 'completed',
+      // A cashier ringing up a demo/training sale marks it here rather
+      // than it silently becoming an indistinguishable real sale --
+      // see list()/deleteTestSale() below for how this keeps it out of
+      // revenue reporting and makes it safely (hard-)deletable later,
+      // unlike a genuine sale which is only ever voided, never removed.
+      isTest: Boolean(isTest),
       createdAt: new Date().toISOString()
     };
 
@@ -119,7 +141,7 @@ class TransactionManager {
    * this does NOT deduct stock -- stock is only committed once the held
    * order is actually paid via payFromHold().
    */
-  async hold({ items, ref = '', customerId = null, cashierId = null, discount = 0 }) {
+  async hold({ items, ref = '', customerId = null, cashierId = null, discount = 0, isTest = false }) {
     if (!Array.isArray(items) || items.length === 0) {
       throw new Error('Cannot hold an empty order');
     }
@@ -164,6 +186,7 @@ class TransactionManager {
       cashierId,
       paymentMethod: null,
       status: 'pending',
+      isTest: Boolean(isTest),
       createdAt: new Date().toISOString()
     };
 
@@ -207,8 +230,20 @@ class TransactionManager {
     }
     const change = Number(Math.max(paid - total, 0).toFixed(2));
 
-    for (const li of txn.items) {
-      await this.inventoryManager.deductForSale(li.productId, li.quantity, `txn-hold-payment`);
+    // Same rollback reasoning as checkout() above: the pre-check loop
+    // just above isn't atomic with this one, so a later line can still
+    // fail here even though everything looked available a moment ago.
+    const deducted = [];
+    try {
+      for (const li of txn.items) {
+        await this.inventoryManager.deductForSale(li.productId, li.quantity, `txn-hold-payment`);
+        deducted.push(li);
+      }
+    } catch (err) {
+      for (const li of deducted) {
+        await this.inventoryManager.restock(li.productId, li.quantity, `txn-hold-payment-rollback`);
+      }
+      throw err;
     }
 
     if (dueAmount > 0) {
@@ -284,6 +319,29 @@ class TransactionManager {
 
     const refundTotal = Number(returnLineItems.reduce((sum, li) => sum + Math.abs(li.lineTotal), 0).toFixed(2));
 
+    // BUGFIX: if this sale still has an amount due (a credit/due sale --
+    // see checkout()'s dueAmount), a return against it was leaving that
+    // due amount completely untouched: the customer would go on owing
+    // the full original amount despite having handed back some of the
+    // goods. A return against an unpaid balance cancels out debt rather
+    // than being a literal cash refund (nothing was collected for that
+    // portion yet, so there's nothing to hand back) -- so it's applied
+    // against the due amount first, before anything would count as an
+    // actual cash refund. originalDueAmount is persisted below so a
+    // later void() or further return sees the already-reduced figure,
+    // not the stale original.
+    let originalDueAmount = txn.dueAmount || 0;
+    if (originalDueAmount > 0 && txn.customerId) {
+      const amountAppliedToDue = Math.min(originalDueAmount, refundTotal);
+      originalDueAmount = Number((originalDueAmount - amountAppliedToDue).toFixed(2));
+      const customer = await this.customersDb.findById(txn.customerId);
+      if (customer) {
+        await this.customersDb.update(txn.customerId, {
+          balance: Number(Math.max((customer.balance || 0) - amountAppliedToDue, 0).toFixed(2))
+        });
+      }
+    }
+
     const returnTxn = {
       id: randomUUID(),
       items: returnLineItems,
@@ -307,10 +365,15 @@ class TransactionManager {
       type: 'return',
       originalTransactionId: transactionId,
       reason,
+      // A return against a test sale is itself part of the test, not a
+      // real refund -- inherited from the original sale so it's
+      // excluded from reporting and cleaned up automatically if the
+      // original is later deleted (see deleteTestSale() above).
+      isTest: Boolean(txn.isTest),
       createdAt: new Date().toISOString()
     };
     await this.db.insert(returnTxn);
-    await this.db.update(transactionId, { returnedQuantities: alreadyReturned });
+    await this.db.update(transactionId, { returnedQuantities: alreadyReturned, dueAmount: originalDueAmount });
     return returnTxn;
   }
 
@@ -325,6 +388,20 @@ class TransactionManager {
       for (const li of txn.items) {
         await this.inventoryManager.restock(li.productId, li.quantity, `void-${transactionId}`);
       }
+      // BUGFIX: a credit/due sale (see checkout()'s dueAmount) adds to
+      // the customer's balance at sale time; voiding the sale removed
+      // the stock and the revenue, but was leaving that balance
+      // untouched -- the customer would still show as owing money for
+      // a sale that no longer exists. Reverse it here, the same way
+      // stock is reversed just above.
+      if (txn.dueAmount > 0 && txn.customerId) {
+        const customer = await this.customersDb.findById(txn.customerId);
+        if (customer) {
+          await this.customersDb.update(txn.customerId, {
+            balance: Number(Math.max((customer.balance || 0) - txn.dueAmount, 0).toFixed(2))
+          });
+        }
+      }
     }
 
     return this.db.update(transactionId, { status: 'voided', voidReason: reason, voidedAt: new Date().toISOString() });
@@ -334,8 +411,108 @@ class TransactionManager {
     return this.db.findById(id);
   }
 
-  async list({ from, to, status, customerId } = {}) {
+  /**
+   * Deletes a test sale outright -- the one place this class actually
+   * removes a record rather than voiding it (void() is for real sales:
+   * it keeps the row, marked 'voided', for an accurate audit trail).
+   * A test sale was never a real transaction to begin with, so there's
+   * nothing to keep an audit trail of; restocking first (only if it
+   * had actually deducted stock -- a still-pending held order never
+   * did) undoes the one side effect a test checkout leaves behind.
+   * Restricted to isTest rows specifically so this can never become a
+   * back door for quietly deleting a genuine sale.
+   */
+  async deleteTestSale(transactionId) {
+    const txn = await this.db.findById(transactionId);
+    if (!txn) throw new Error(`Transaction not found: ${transactionId}`);
+    if (!txn.isTest) {
+      throw new Error('Only transactions marked as a test sale can be deleted. Void a real sale instead.');
+    }
+    if (txn.status === 'completed') {
+      // Account for any partial returns already processed against this
+      // sale (each restocked its own share already -- see returnItems()
+      // above) so the remaining, not-yet-returned quantity is the only
+      // part restocked here.
+      const alreadyReturned = txn.returnedQuantities || {};
+      for (const li of txn.items) {
+        const remaining = li.quantity - (alreadyReturned[li.productId] || 0);
+        if (remaining > 0) {
+          await this.inventoryManager.restock(li.productId, remaining, `test-sale-delete-${transactionId}`);
+        }
+      }
+      // Same reasoning as void() above: if this test sale was put on
+      // credit (dueAmount > 0), that's a real balance on a real
+      // customer's account even though the sale itself was a test --
+      // deleting the sale without clearing it would leave them owing
+      // money for a transaction that no longer exists.
+      if (txn.dueAmount > 0 && txn.customerId) {
+        const customer = await this.customersDb.findById(txn.customerId);
+        if (customer) {
+          await this.customersDb.update(txn.customerId, {
+            balance: Number(Math.max((customer.balance || 0) - txn.dueAmount, 0).toFixed(2))
+          });
+        }
+      }
+    }
+    await this.db.remove(transactionId);
+
+    // Any return recorded against this test sale (see returnItems()
+    // above) is itself just part of the test, and would otherwise be
+    // left behind referencing a now-deleted transaction.
+    const linkedReturns = (await this.db.readAll()).filter((t) => t.originalTransactionId === transactionId);
+    for (const r of linkedReturns) {
+      await this.db.remove(r.id);
+    }
+
+    return { id: transactionId, deleted: true };
+  }
+
+  /**
+   * Retroactively flags an already-existing sale as a test sale -- for
+   * sales made before isTest existed, or ones nobody thought to flag
+   * at the time (e.g. a batch run through while setting the store up,
+   * before going live for real). Once flagged, it's excluded from
+   * reports like any other test sale, and becomes eligible for
+   * deleteTestSale()/clearTestSales() -- this is deliberately the only
+   * path to actually deleting an old real-looking sale, rather than
+   * adding a separate, less-audited "just delete this" action.
+   */
+  async markAsTest(transactionId) {
+    const txn = await this.db.findById(transactionId);
+    if (!txn) throw new Error(`Transaction not found: ${transactionId}`);
+    return this.db.update(transactionId, { isTest: true });
+  }
+
+  /**
+   * Bulk version of deleteTestSale() for a "Clear test sales" action.
+   * Deleting a sale also removes any test return linked to it (see
+   * above), so by the time this loop reaches that return's own entry
+   * in the snapshot it's already gone -- not an error, just nothing
+   * left to do for that one.
+   */
+  async clearTestSales() {
+    const all = await this.db.readAll();
+    const testSales = all.filter((t) => t.isTest);
+    let deletedCount = 0;
+    for (const t of testSales) {
+      if (!(await this.db.findById(t.id))) continue;
+      await this.deleteTestSale(t.id);
+      deletedCount += 1;
+    }
+    return { deletedCount };
+  }
+
+  /**
+   * `includeTest` defaults to false so every existing caller --
+   * reports, dashboards, top-products -- keeps test sales out of real
+   * figures automatically, without each one needing to know test sales
+   * exist. Pass true only where a human is meant to actually see them
+   * (the Transactions/Customer Orders screens, so there's somewhere to
+   * find and delete them from).
+   */
+  async list({ from, to, status, customerId, includeTest = false } = {}) {
     let transactions = await this.db.readAll();
+    if (!includeTest) transactions = transactions.filter((t) => !t.isTest);
     if (status) transactions = transactions.filter((t) => t.status === status);
     if (customerId) transactions = transactions.filter((t) => t.customerId === customerId);
     // A bare "YYYY-MM-DD" string (no time component) parses as UTC
