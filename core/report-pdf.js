@@ -11,7 +11,11 @@ async function buildReportPdf({ range, reportGenerator, storeProfile }) {
     reportGenerator.topProducts({ from, to, limit: 10 }),
     storeProfile.get()
   ]);
-  const symbol = profile.currencySymbol || '$';
+  // pdfkit's built-in Helvetica only covers Latin-1, so a rupee sign
+  // (U+20B9) would print as a wrong character. Use the ASCII "Rs."
+  // in the PDF instead; other Latin-1 symbols ($, EUR, GBP) are fine.
+  const rawSymbol = profile.currencySymbol || '$';
+  const symbol = rawSymbol === '\u20B9' ? 'Rs.' : rawSymbol;
   const money = (n) => `${symbol} ${Number(n || 0).toLocaleString()}`;
 
   const doc = new PDFDocument({ margin: 48, size: 'A4' });

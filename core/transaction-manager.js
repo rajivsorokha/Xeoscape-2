@@ -484,6 +484,34 @@ class TransactionManager {
   }
 
   /**
+   * Undoes markAsTest() -- for when the wrong sale was flagged. The
+   * sale goes back to counting as a normal sale in reports and can no
+   * longer be deleted (only voided). Nothing about stock or the
+   * customer's balance changes either way: marking never touched
+   * them, so there is nothing to put back.
+   *
+   * Any return recorded against the sale inherited its test flag
+   * (see returnItems()), so it is flipped back along with it --
+   * otherwise a real sale would be left with returns that reports
+   * still ignore.
+   */
+  async unmarkAsTest(transactionId) {
+    const txn = await this.db.findById(transactionId);
+    if (!txn) throw new Error(`Transaction not found: ${transactionId}`);
+    if (!txn.isTest) throw new Error('This transaction is not marked as a test sale.');
+    if (txn.type === 'return') {
+      throw new Error('A return follows its original sale. Undo the test mark on the sale instead.');
+    }
+    const updated = await this.db.update(transactionId, { isTest: false });
+    const linkedReturns = (await this.db.readAll())
+      .filter((t) => t.originalTransactionId === transactionId && t.isTest);
+    for (const r of linkedReturns) {
+      await this.db.update(r.id, { isTest: false });
+    }
+    return updated;
+  }
+
+  /**
    * Bulk version of deleteTestSale() for a "Clear test sales" action.
    * Deleting a sale also removes any test return linked to it (see
    * above), so by the time this loop reaches that return's own entry
