@@ -58,6 +58,7 @@
   },
   "pkg": {
     "assets": [
+      "node_modules/pdfkit/js/data/*",
       "assets/**/*",
       "index.html",
       "renderer.js",
