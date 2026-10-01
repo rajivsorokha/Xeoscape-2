@@ -463,6 +463,29 @@ describe('TransactionManager', () => {
       expect(result.deleted).toBe(true);
     });
 
+    test('unmarkAsTest() reverses a wrong mark: sale counts again and can no longer be deleted', async () => {
+      const txn = await transactionManager.checkout({ items: [{ productId: product.id, quantity: 1 }] });
+      await transactionManager.markAsTest(txn.id);
+      expect((await transactionManager.list({})).map((t) => t.id)).not.toContain(txn.id);
+
+      const restored = await transactionManager.unmarkAsTest(txn.id);
+      expect(restored.isTest).toBe(false);
+      expect((await transactionManager.list({})).map((t) => t.id)).toContain(txn.id);
+      await expect(transactionManager.deleteTestSale(txn.id)).rejects.toThrow('Only transactions marked as a test sale');
+    });
+
+    test('unmarkAsTest() flips linked returns back too and rejects a sale that is not marked', async () => {
+      const sale = await transactionManager.checkout({ items: [{ productId: product.id, quantity: 2 }] });
+      await expect(transactionManager.unmarkAsTest(sale.id)).rejects.toThrow('not marked as a test sale');
+
+      await transactionManager.markAsTest(sale.id);
+      await transactionManager.returnItems(sale.id, { items: [{ productId: product.id, quantity: 1 }] });
+      await transactionManager.unmarkAsTest(sale.id);
+
+      const all = await transactionManager.list({ includeTest: true });
+      expect(all.filter((t) => t.isTest)).toHaveLength(0);
+    });
+
     test('clearTestSales() does not error on a test return already removed alongside its parent sale', async () => {
       const sale = await transactionManager.checkout({ items: [{ productId: product.id, quantity: 2 }], isTest: true });
       await transactionManager.returnItems(sale.id, { items: [{ productId: product.id, quantity: 1 }] });
