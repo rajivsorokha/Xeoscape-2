@@ -300,135 +300,6 @@ function pctChange(now, before) {
   return round2(((now - before) / before) * 100);
 }
 
-// ---- Merchandising (clothing-store view) --------------------------------
-// Sell-through, stock cover, size x colour matrix, size curve, reorder
-// and slow-mover lists. Pure function: give it the catalogue and the
-// period's completed transactions, get plain numbers back.
-const SIZE_ORDER = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL', '5XL'];
-
-function sizeRank(size) {
-  const i = SIZE_ORDER.indexOf(String(size).toUpperCase().trim());
-  if (i >= 0) return i;
-  const num = parseFloat(size);
-  return Number.isFinite(num) ? 100 + num : 1000;
-}
-
-const tidy = (v) => String(v ?? '').trim();
-const titleCase = (v) => tidy(v).toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
-
-function reorderThreshold(p, fallback = 5) {
-  if (typeof p.reorderPoint === 'number') return p.reorderPoint;
-  if (typeof p.minStock === 'number') return p.minStock;
-  return fallback;
-}
-
-function merchandising({ catalog, txns, days, current }) {
-  const byId = new Map(catalog.map((p) => [p.id, p]));
-  const sold = new Map(); // productId -> net units sold
-  let revCosted = 0;
-  let cogs = 0;
-  let returnsCount = 0;
-  let returnedValue = 0;
-  let salesCount = 0;
-  const garment = new Map();
-
-  for (const t of txns) {
-    const sign = t.type === 'return' ? -1 : 1;
-    if (sign < 0) { returnsCount += 1; returnedValue += Math.abs(t.total || 0); } else { salesCount += 1; }
-    for (const li of t.items || []) {
-      const qty = sign * (li.quantity || 0);
-      const rev = sign * Math.abs(li.lineTotal || 0);
-      sold.set(li.productId, (sold.get(li.productId) || 0) + qty);
-      const p = byId.get(li.productId);
-      if (p && typeof p.cost === 'number') { revCosted += rev; cogs += qty * p.cost; }
-      const g = tidy(p?.garmentType || p?.category) || 'Other';
-      const row = garment.get(g) || { name: g, units: 0, revenue: 0 };
-      row.units += qty;
-      row.revenue += rev;
-      garment.set(g, row);
-    }
-  }
-
-  let unitsOnHand = 0;
-  let stockCost = 0;
-  let stockRetail = 0;
-  let outOfStock = 0;
-  const reorder = [];
-  const slow = [];
-  const sizes = new Map();   // sizeKey -> { label, sold, stock }
-  const colors = new Map();  // colourKey -> { label, sold }
-  const cells = new Map();   // "colour|size" -> { sold, stock }
-  let unitsSold = 0;
-
-  for (const p of catalog) {
-    const stock = Math.max(0, p.stock || 0);
-    const unitSold = Math.max(0, sold.get(p.id) || 0);
-    const cost = typeof p.cost === 'number' ? p.cost : (typeof p.price === 'number' ? p.price : 0);
-    unitsOnHand += stock;
-    unitsSold += unitSold;
-    stockCost += stock * cost;
-    stockRetail += stock * (typeof p.price === 'number' ? p.price : 0);
-    if ((p.stock || 0) <= 0) outOfStock += 1;
-    const threshold = reorderThreshold(p);
-    if ((p.stock || 0) <= threshold) reorder.push({ name: p.name, stock: p.stock || 0, reorderPoint: threshold, sold: unitSold });
-    if (stock > 0 && unitSold <= 0) slow.push({ name: p.name, stock, value: round2(stock * cost), size: tidy(p.size), color: titleCase(p.color) });
-
-    const sizeLabel = tidy(p.size).toUpperCase();
-    const colorLabel = titleCase(p.color);
-    if (sizeLabel) {
-      const r = sizes.get(sizeLabel) || { label: sizeLabel, sold: 0, stock: 0 };
-      r.sold += unitSold; r.stock += stock; sizes.set(sizeLabel, r);
-    }
-    if (colorLabel) {
-      const r = colors.get(colorLabel) || { label: colorLabel, sold: 0 };
-      r.sold += unitSold; colors.set(colorLabel, r);
-    }
-    if (sizeLabel && colorLabel) {
-      const k = `${colorLabel}|${sizeLabel}`;
-      const r = cells.get(k) || { sold: 0, stock: 0 };
-      r.sold += unitSold; r.stock += stock; cells.set(k, r);
-    }
-  }
-
-  const sizeList = [...sizes.values()].sort((a, b) => sizeRank(a.label) - sizeRank(b.label));
-  const topColors = [...colors.values()].sort((a, b) => b.sold - a.sold || a.label.localeCompare(b.label)).slice(0, 6);
-  const matrix = {
-    sizes: sizeList.map((x) => x.label),
-    rows: topColors.map((c) => ({
-      color: c.label,
-      cells: sizeList.map((sz) => ({ size: sz.label, ...(cells.get(`${c.label}|${sz.label}`) || { sold: 0, stock: 0 }) }))
-    }))
-  };
-
-  const outFlow = Math.max(0, unitsSold);
-  const perDay = outFlow / Math.max(1, days);
-  return {
-    unitsOnHand,
-    stockCostValue: round2(stockCost),
-    stockRetailValue: round2(stockRetail),
-    sellThroughPct: outFlow + unitsOnHand > 0 ? round2((outFlow / (outFlow + unitsOnHand)) * 100) : null,
-    stockCoverDays: perDay > 0 ? Math.round(unitsOnHand / perDay) : null,
-    outOfStock,
-    reorderCount: reorder.length,
-    returnsCount,
-    returnRatePct: salesCount ? round2((returnsCount / salesCount) * 100) : 0,
-    returnedValue: round2(returnedValue),
-    marginPct: revCosted > 0 ? round2(((revCosted - cogs) / revCosted) * 100) : null,
-    grossProfit: revCosted > 0 ? round2(revCosted - cogs) : null,
-    discounts: current.discounts,
-    needsReorder: reorder.sort((a, b) => a.stock - b.stock || b.sold - a.sold).slice(0, 6),
-    slowMovers: slow.sort((a, b) => b.value - a.value).slice(0, 6),
-    slowMoverCount: slow.length,
-    slowMoverValue: round2(slow.reduce((s2, x) => s2 + x.value, 0)),
-    sizeCurve: sizeList,
-    matrix,
-    byGarment: [...garment.values()]
-      .map((g) => ({ ...g, revenue: round2(g.revenue) }))
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 6)
-  };
-}
-
 async function dashboard(rg, { days = 30 } = {}) {
   const n = Math.min(Math.max(parseInt(days, 10) || 30, 1), 365);
   const today = new Date();
@@ -497,13 +368,6 @@ async function dashboard(rg, { days = 30 } = {}) {
 
   const customers = rg.customersDb ? await rg.customersDb.readAll() : [];
 
-  let merch = null;
-  try {
-    merch = merchandising({ catalog: await rg.productManager.list(), txns, days: n, current });
-  } catch (err) {
-    merch = null; // never let the stock view break the sales dashboard
-  }
-
   return {
     days: n,
     from: iso(from),
@@ -527,9 +391,8 @@ async function dashboard(rg, { days = 30 } = {}) {
       returning: returningCustomers,
       new: customerSpend.size - returningCustomers
     },
-    outstandingDue: round2(customers.reduce((s, c) => s + (c.balance || 0), 0)),
-    merch
+    outstandingDue: round2(customers.reduce((s, c) => s + (c.balance || 0), 0))
   };
 }
 
-module.exports = { merchandising, dashboard, transactionDetails, productDetails, customerReport, toCsv };
+module.exports = { dashboard, transactionDetails, productDetails, customerReport, toCsv };
